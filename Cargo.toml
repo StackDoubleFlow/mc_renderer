@@ -14,6 +14,12 @@ tracing = "0.1.40"
 tracing-subscriber = "0.3.18"
 zip = "0.6.6"
 minecraft-assets = { git = "https://github.com/wgpu-mc/minecraft-assets.git" }
-tracing-log = "0.2"
-winit = "0.29"
-wgpu = "0.19"
+bevy = "0.13"
+
+# Enable a small amount of optimization in debug mode
+[profile.dev]
+opt-level = 1
+
+# Enable high optimizations for dependencies (incl. Bevy), but not for our code:
+[profile.dev.package."*"]
+opt-level = 3

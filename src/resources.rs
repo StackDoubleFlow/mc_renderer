@@ -52,19 +52,10 @@ impl LoadResource for ZipArchiveResourceProvider {
     }
 }
 
-pub struct Resources {}
-
-impl Resources {
-    pub fn init(path: &Path) -> Result<Self> {
-        let zip_file = File::open(path)?;
-        let zip = ZipArchive::new(zip_file)?;
-        let resource_provider = ZipArchiveResourceProvider(RefCell::new(zip));
-        let assets = AssetPack::new(resource_provider);
-
-        let states = assets.load_blockstates("oak_planks").unwrap();
-        dbg!(assets
-            .load_block_model_recursive("block/oak_planks")
-            .unwrap());
-        Ok(Resources {})
-    }
+pub fn load_asset_pack(path: &Path) -> Result<AssetPack> {
+    let zip_file = File::open(path)?;
+    let zip = ZipArchive::new(zip_file)?;
+    let resource_provider = ZipArchiveResourceProvider(RefCell::new(zip));
+    let assets = AssetPack::new(resource_provider);
+    Ok(assets)
 }
