@@ -26,7 +26,6 @@ struct InputWorld {
 
 fn main() -> Result<()> {
     color_eyre::install()?;
-    tracing_subscriber::fmt::init();
 
     let cli = cli::parse();
     let asset_pack = resources::load_asset_pack(&cli.client_jar)?;
