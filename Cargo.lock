@@ -643,6 +643,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "bevy_fly_camera"
+version = "0.13.0"
+source = "git+https://github.com/Cyannide/bevy_fly_camera.git#303c5f6629664f39b867fb9b6b50b88c5d538226"
+dependencies = [
+ "bevy",
+]
+
+[[package]]
 name = "bevy_gilrs"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2774,6 +2782,7 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "bevy_egui",
+ "bevy_fly_camera",
  "clap",
  "color-eyre",
  "minecraft-assets",
