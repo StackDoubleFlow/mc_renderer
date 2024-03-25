@@ -16,6 +16,7 @@ minecraft-assets = { git = "https://github.com/wgpu-mc/minecraft-assets.git" }
 bevy = { version = "0.13", features = ["wayland"] }
 bevy_egui = "0.26"
 bevy_fly_camera = { git = "https://github.com/Cyannide/bevy_fly_camera.git" }
+thiserror = "1.0.58"
 
 # Enable a small amount of optimization in debug mode
 [profile.dev]
