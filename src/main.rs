@@ -1,19 +1,17 @@
 mod cli;
+mod debug_menu;
 mod resources;
 
-use color_eyre::Result;
-use tracing::info;
 use bevy::prelude::*;
+use color_eyre::Result;
+use debug_menu::McDebugMenuPlugin;
 
 #[derive(Component)]
 struct McCamera;
 
 fn setup(mut commands: Commands) {
     commands.insert_resource(ClearColor(Color::BLUE));
-    commands.spawn((
-        Camera3dBundle::default(),
-        McCamera,
-    ));
+    commands.spawn((Camera3dBundle::default(), McCamera));
 }
 
 struct InputWorld {
@@ -30,7 +28,10 @@ fn main() -> Result<()> {
     let cli = cli::parse();
     let asset_pack = resources::load_asset_pack(&cli.client_jar)?;
 
-    App::new().add_plugins(DefaultPlugins).add_systems(Startup, setup).run();
+    App::new()
+        .add_plugins((DefaultPlugins, McDebugMenuPlugin))
+        .add_systems(Startup, setup)
+        .run();
 
     Ok(())
 }

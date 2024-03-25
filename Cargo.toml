@@ -14,6 +14,7 @@ tracing = "0.1.40"
 zip = "0.6.6"
 minecraft-assets = { git = "https://github.com/wgpu-mc/minecraft-assets.git" }
 bevy = { version = "0.13", features = ["wayland"] }
+bevy_egui = "0.26"
 
 # Enable a small amount of optimization in debug mode
 [profile.dev]
