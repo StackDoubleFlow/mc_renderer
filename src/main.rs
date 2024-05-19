@@ -1,19 +1,17 @@
 mod cli;
 mod debug_menu;
 mod asset_pack;
+mod mc_meta;
 
-use bevy::asset::io::Reader;
-use bevy::asset::{AssetLoader, AssetPath, AsyncReadExt, LoadContext, LoadedFolder};
+use bevy::asset::LoadedFolder;
 use bevy::prelude::*;
 use bevy::render::texture::ImageSampler;
 use bevy::utils::hashbrown::HashSet;
-use bevy::utils::BoxedFuture;
 use bevy::window::{CursorGrabMode, PrimaryWindow};
 use bevy_fly_camera::{FlyCamera, FlyCameraPlugin};
 use color_eyre::Result;
 use debug_menu::McDebugMenuPlugin;
-use serde::Deserialize;
-use thiserror::Error;
+use mc_meta::{McMetaAsset, McMetaAssetLoader};
 use std::fs;
 use mc_schems::Schematic;
 
@@ -177,88 +175,6 @@ struct InputWorld {
     dim_z: usize,
 }
 
-
-#[derive(Debug, Deserialize)]
-#[serde(untagged)]
-enum TextureAnimationFrameInfo {
-    Index(u32),
-    WithDelay {
-        #[serde(default)]
-        index: u32,
-        #[serde(default)]
-        time: u32,
-    }
-}
-
-#[derive(Debug, Deserialize, Default)]
-struct TextureAnimationInfo {
-    #[serde(default)]
-    interpolate: bool,
-    #[serde(default)]
-    width: u32,
-    #[serde(default)]
-    height: u32,
-    #[serde(default)]
-    frametime: u32,
-    #[serde(default)]
-    frames: Vec<TextureAnimationFrameInfo>,
-}
-
-#[derive(Debug, Deserialize)]
-struct McMetaAssetContents {
-    #[serde(default)]
-    animation: TextureAnimationInfo,
-}
-
-
-#[derive(Asset, TypePath, Debug)]
-struct McMetaAsset {
-    contents: McMetaAssetContents,
-    texture: Handle<Image>,
-}
-
-#[derive(Default)]
-struct McMetaAssetLoader;
-
-/// Possible errors that can be produced by [`McMetaAssetLoader`]
-#[non_exhaustive]
-#[derive(Debug, Error)]
-pub enum McMetaAssetLoaderError {
-    /// An [IO](std::io) Error
-    #[error("Could not load asset: {0}")]
-    Io(#[from] std::io::Error),
-    /// A [serde_json] Error
-    #[error("Could not parse JSON: {0}")]
-    JsonError(#[from] serde_json::Error),
-}
-
-impl AssetLoader for McMetaAssetLoader {
-    type Asset = McMetaAsset;
-    type Settings = ();
-    type Error = McMetaAssetLoaderError;
-    fn load<'a>(
-        &'a self,
-        reader: &'a mut Reader,
-        _settings: &'a (),
-        load_context: &'a mut LoadContext,
-    ) -> BoxedFuture<'a, Result<Self::Asset, Self::Error>> {
-        Box::pin(async move {
-            let mut bytes = Vec::new();
-            reader.read_to_end(&mut bytes).await?;
-            let contents = serde_json::from_slice::<McMetaAssetContents>(&bytes)?;
-            // Get path of the base file it refers to by cutting off .mcmeta
-            let texture_path = load_context.path().with_extension("");
-            Ok(McMetaAsset {
-                contents,
-                texture: load_context.load(AssetPath::from_path(&texture_path)),
-            })
-        })
-    }
-
-    fn extensions(&self) -> &[&str] {
-        &["mcmeta"]
-    }
-}
 
 fn main() -> Result<()> {
     color_eyre::install()?;
