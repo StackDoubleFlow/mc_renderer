@@ -15,6 +15,8 @@ use color_eyre::Result;
 use debug_menu::McDebugMenuPlugin;
 use serde::Deserialize;
 use thiserror::Error;
+use std::fs;
+use mc_schems::Schematic;
 
 #[derive(States, Debug, Clone, PartialEq, Eq, Hash, Default)]
 enum AppState {
@@ -60,7 +62,6 @@ fn create_texture_atlas(
         };
         let meta_asset = mc_metas.get(meta_id).unwrap();
         animated_textures.insert(meta_asset.texture.id());
-        
         // TODO: Actually insert animated texturess
     }
 
@@ -263,6 +264,7 @@ fn main() -> Result<()> {
     color_eyre::install()?;
 
     let cli = cli::parse();
+    let schematic = Schematic::deserialize(&fs::read(cli.schem_file)?)?;
     let asset_pack = resources::load_asset_pack(&cli.client_jar)?;
 
     App::new()

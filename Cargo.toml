@@ -12,11 +12,15 @@ serde = { version = "1.0.192", features = ["derive"] }
 serde_json = "1.0.108"
 tracing = "0.1.40"
 zip = "0.6.6"
+# This fork supports more asset types
 minecraft-assets = { git = "https://github.com/wgpu-mc/minecraft-assets.git" }
 bevy = { version = "0.13", features = ["wayland"] }
 bevy_egui = "0.26"
+# This fork is updated to bevy 0.13
 bevy_fly_camera = { git = "https://github.com/Cyannide/bevy_fly_camera.git" }
 thiserror = "1.0.58"
+# Not yet published to crates.io
+mc_schems = { git = "https://github.com/StackDoubleFlow/mc_schems.git" }
 
 # Enable a small amount of optimization in debug mode
 [profile.dev]
