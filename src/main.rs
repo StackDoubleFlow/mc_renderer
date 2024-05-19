@@ -1,11 +1,10 @@
 mod cli;
 mod debug_menu;
-mod resources;
+mod asset_pack;
 
 use bevy::asset::io::Reader;
 use bevy::asset::{AssetLoader, AssetPath, AsyncReadExt, LoadContext, LoadedFolder};
 use bevy::prelude::*;
-use bevy::render::mesh::shape::Cube;
 use bevy::render::texture::ImageSampler;
 use bevy::utils::hashbrown::HashSet;
 use bevy::utils::BoxedFuture;
@@ -19,7 +18,7 @@ use std::fs;
 use mc_schems::Schematic;
 
 #[derive(States, Debug, Clone, PartialEq, Eq, Hash, Default)]
-enum AppState {
+enum AppLoadState {
     #[default]
     LoadingTextures,
     Finished,
@@ -35,14 +34,14 @@ fn load_textures(mut commands: Commands, asset_server: Res<AssetServer>) {
 }
 
 fn check_textures(
-    mut next_state: ResMut<NextState<AppState>>,
+    mut next_state: ResMut<NextState<AppLoadState>>,
     mc_textures_folder: Res<McTexturesFolder>,
     mut events: EventReader<AssetEvent<LoadedFolder>>,
 ) {
     // Advance the `AppState` once all sprite handles have been loaded by the `AssetServer`
     for event in events.read() {
         if event.is_loaded_with_dependencies(&mc_textures_folder.0) {
-            next_state.set(AppState::Finished);
+            next_state.set(AppLoadState::Finished);
         }
     }
 }
@@ -247,6 +246,7 @@ impl AssetLoader for McMetaAssetLoader {
             let mut bytes = Vec::new();
             reader.read_to_end(&mut bytes).await?;
             let contents = serde_json::from_slice::<McMetaAssetContents>(&bytes)?;
+            // Get path of the base file it refers to by cutting off .mcmeta
             let texture_path = load_context.path().with_extension("");
             Ok(McMetaAsset {
                 contents,
@@ -265,19 +265,19 @@ fn main() -> Result<()> {
 
     let cli = cli::parse();
     let schematic = Schematic::deserialize(&fs::read(cli.schem_file)?)?;
-    let asset_pack = resources::load_asset_pack(&cli.client_jar)?;
+    let asset_pack = asset_pack::load_asset_pack(&cli.client_jar)?;
 
     App::new()
         .add_plugins((DefaultPlugins, McDebugMenuPlugin, FlyCameraPlugin))
-        .init_state::<AppState>()
+        .init_state::<AppLoadState>()
         .init_asset::<McMetaAsset>()
         .init_asset_loader::<McMetaAssetLoader>()
-        .add_systems(OnEnter(AppState::LoadingTextures), load_textures)
+        .add_systems(OnEnter(AppLoadState::LoadingTextures), load_textures)
         .add_systems(
             Update,
-            check_textures.run_if(in_state(AppState::LoadingTextures)),
+            check_textures.run_if(in_state(AppLoadState::LoadingTextures)),
         )
-        .add_systems(OnEnter(AppState::Finished), setup)
+        .add_systems(OnEnter(AppLoadState::Finished), setup)
         .add_systems(Startup, setup_camera)
         .add_systems(Update, mouse_grab)
         .run();
