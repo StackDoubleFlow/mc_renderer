@@ -7,13 +7,20 @@ use bevy::asset::LoadedFolder;
 use bevy::prelude::*;
 use bevy::render::texture::ImageSampler;
 use bevy::utils::hashbrown::HashSet;
+use bevy::utils::HashMap;
 use bevy::window::{CursorGrabMode, PrimaryWindow};
 use bevy_fly_camera::{FlyCamera, FlyCameraPlugin};
 use color_eyre::Result;
 use debug_menu::McDebugMenuPlugin;
 use mc_meta::{McMetaAsset, McMetaAssetLoader};
+use minecraft_assets::api::AssetPack;
+use minecraft_assets::schemas::blockstates::multipart::StateValue;
+use minecraft_assets::schemas::blockstates::ModelProperties;
+use minecraft_assets::schemas::models::{Element, Textures};
+use minecraft_assets::schemas::BlockStates;
 use std::fs;
-use mc_schems::Schematic;
+use std::sync::Mutex;
+use mc_schems::{Blocks, Schematic};
 
 #[derive(States, Debug, Clone, PartialEq, Eq, Hash, Default)]
 enum AppLoadState {
@@ -175,6 +182,79 @@ struct InputWorld {
     dim_z: usize,
 }
 
+#[derive(Resource)]
+struct BlockWorld {
+    blocks: Blocks,
+    entities: HashMap<(u32, u32, u32), Entity>,
+}
+
+fn decode_props(props: &str) -> HashMap<&str, StateValue> {
+    let mut res = HashMap::new();
+    if props.is_empty() {
+        return res;
+    }
+
+    for prop in props.split(',') {
+        let (k, v) = prop.split_once('=').unwrap();
+        let v = StateValue::String(v.to_string());
+        res.insert(k, v);
+    }
+    res
+}
+
+fn get_block_model(asset_pack: &AssetPack, block: &str) -> Result<ModelProperties> {
+    let (name, props) = match block.split_once('[') {
+        Some((name, props)) => (name, props.trim_end_matches(']')),
+        None => (block, ""),
+    };
+    let blockstates = asset_pack.load_blockstates(name)?;
+    let props = decode_props(props);
+    let cases = blockstates.into_multipart();
+    let mut variant = None;
+    for case in cases {
+        let applies = case.applies(props.iter().map(|(k, v)| (*k, v)));
+        if applies {
+            variant = Some(case.apply);
+            break;
+        }
+    };
+    let model = variant.expect("Could not match multipart model").models()[0].clone();
+
+    Ok(model)
+}
+
+#[derive(Debug)]
+struct ProcessedModel {
+    textures: Textures,
+    elements: Vec<Element>,
+    x_rot: i32,
+    y_rot: i32,
+}
+
+fn process_model(asset_pack: &AssetPack, model: ModelProperties) -> Result<ProcessedModel> {
+    let models = asset_pack.load_block_model_recursive(&model.model)?;
+    let mut textures = Textures::default();
+    let mut elements = Vec::new();
+    for model in models.into_iter().rev() {
+        if let Some(mut model_textures) = model.textures {
+            model_textures.merge(textures);
+            textures = model_textures;
+        }
+        if let Some(mut model_elements) = model.elements {
+            elements.append(&mut model_elements);
+        }
+    }
+    textures.resolve(&textures.clone());
+    Ok(ProcessedModel {
+        textures,
+        elements,
+        x_rot: model.x,
+        y_rot: model.y,
+    })
+}
+
+#[derive(Resource)]
+struct BlockModels(HashMap<String, ProcessedModel>);
 
 fn main() -> Result<()> {
     color_eyre::install()?;
@@ -182,12 +262,28 @@ fn main() -> Result<()> {
     let cli = cli::parse();
     let schematic = Schematic::deserialize(&fs::read(cli.schem_file)?)?;
     let asset_pack = asset_pack::load_asset_pack(&cli.client_jar)?;
+    let mut models = HashMap::new();
+    let (sx, sy, sz) = schematic.blocks.size();
+    for x in 0..sx {
+        for y in 0..sy {
+            for z in 0..sz {
+                let block = schematic.blocks.get_block_at(x, y, z);
+                if !models.contains_key(block) {
+                    let model_properties = get_block_model(&asset_pack, block)?;
+                    let model = process_model(&asset_pack, model_properties)?;
+                    models.insert(block.to_string(), model);
+                }
+            }
+        }
+    }
+    dbg!(&models);
 
     App::new()
         .add_plugins((DefaultPlugins, McDebugMenuPlugin, FlyCameraPlugin))
         .init_state::<AppLoadState>()
         .init_asset::<McMetaAsset>()
         .init_asset_loader::<McMetaAssetLoader>()
+        .insert_resource(BlockWorld { blocks: schematic.blocks, entities: HashMap::new() })
         .add_systems(OnEnter(AppLoadState::LoadingTextures), load_textures)
         .add_systems(
             Update,
