@@ -99,6 +99,8 @@ fn setup(
     mut commands: Commands,
     mc_textures_handle: Res<McTexturesFolder>,
     asset_server: Res<AssetServer>,
+    block_models: Res<BlockModels>,
+    block_world: Res<BlockWorld>,
     mut texture_atlases: ResMut<Assets<TextureAtlasLayout>>,
     loaded_folders: Res<Assets<LoadedFolder>>,
     mut textures: ResMut<Assets<Image>>,
@@ -276,7 +278,6 @@ fn main() -> Result<()> {
             }
         }
     }
-    dbg!(&models);
 
     App::new()
         .add_plugins((DefaultPlugins, McDebugMenuPlugin, FlyCameraPlugin))
@@ -284,6 +285,7 @@ fn main() -> Result<()> {
         .init_asset::<McMetaAsset>()
         .init_asset_loader::<McMetaAssetLoader>()
         .insert_resource(BlockWorld { blocks: schematic.blocks, entities: HashMap::new() })
+        .insert_resource(BlockModels(models))
         .add_systems(OnEnter(AppLoadState::LoadingTextures), load_textures)
         .add_systems(
             Update,
