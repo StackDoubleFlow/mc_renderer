@@ -134,12 +134,10 @@ fn element_mesh(element: &Element, atlas: &TextureAtlas, textures: &Textures) ->
             normals.push(normal);
         }
         let texture = face.texture.resolve(textures).unwrap();
-        dbg!(texture);
         let texture_name = texture
             .trim_start_matches("minecraft:")
             .trim_start_matches("block/");
         let texture_path = format!("minecraft/textures/block/{}.png", texture_name);
-        dbg!(&texture_path);
         let image_id = atlas.mapping[&texture_path];
         let idx_in_atlas = atlas.layout.get_texture_index(image_id).unwrap();
         let mut atlas_rect = atlas.layout.textures[idx_in_atlas];
@@ -353,6 +351,7 @@ fn setup(
         material: materials.add(StandardMaterial {
             base_color_texture: Some(atlas.image),
             alpha_mode: AlphaMode::Blend,
+            unlit: true,
             ..default()
         }),
         transform: Transform::from_xyz(0.0, 0.0, -50.0),
