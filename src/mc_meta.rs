@@ -2,9 +2,9 @@ use bevy::asset::io::Reader;
 use bevy::asset::{Asset, AssetLoader, AssetPath, AsyncReadExt, Handle, LoadContext};
 use bevy::reflect::TypePath;
 use bevy::render::texture::Image;
+use bevy::utils::BoxedFuture;
 use serde::Deserialize;
 use thiserror::Error;
-use bevy::utils::BoxedFuture;
 
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
@@ -15,7 +15,7 @@ pub enum TextureAnimationFrameInfo {
         index: u32,
         #[serde(default)]
         time: u32,
-    }
+    },
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -37,7 +37,6 @@ pub struct McMetaAssetContents {
     #[serde(default)]
     pub animation: TextureAnimationInfo,
 }
-
 
 #[derive(Asset, TypePath, Debug)]
 pub struct McMetaAsset {

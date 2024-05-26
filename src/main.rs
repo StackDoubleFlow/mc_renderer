@@ -1,11 +1,16 @@
+mod asset_pack;
 mod cli;
 mod debug_menu;
-mod asset_pack;
 mod mc_meta;
 
 use bevy::asset::LoadedFolder;
+use bevy::pbr::wireframe::{WireframeConfig, WireframePlugin};
 use bevy::prelude::*;
+use bevy::render::mesh::{Indices, PrimitiveTopology, VertexAttributeValues};
+use bevy::render::render_asset::RenderAssetUsages;
+use bevy::render::settings::{RenderCreation, WgpuFeatures, WgpuSettings};
 use bevy::render::texture::ImageSampler;
+use bevy::render::RenderPlugin;
 use bevy::utils::hashbrown::HashSet;
 use bevy::utils::HashMap;
 use bevy::window::{CursorGrabMode, PrimaryWindow};
@@ -13,14 +18,14 @@ use bevy_fly_camera::{FlyCamera, FlyCameraPlugin};
 use color_eyre::Result;
 use debug_menu::McDebugMenuPlugin;
 use mc_meta::{McMetaAsset, McMetaAssetLoader};
+use mc_schems::{Blocks, Schematic};
 use minecraft_assets::api::AssetPack;
 use minecraft_assets::schemas::blockstates::multipart::StateValue;
 use minecraft_assets::schemas::blockstates::ModelProperties;
-use minecraft_assets::schemas::models::{Element, Textures};
+use minecraft_assets::schemas::models::{Axis, BlockFace, Element, ElementFace, Texture, Textures};
 use minecraft_assets::schemas::BlockStates;
 use std::fs;
 use std::sync::Mutex;
-use mc_schems::{Blocks, Schematic};
 
 #[derive(States, Debug, Clone, PartialEq, Eq, Hash, Default)]
 enum AppLoadState {
@@ -51,13 +56,18 @@ fn check_textures(
     }
 }
 
+struct TextureAtlas {
+    image: Handle<Image>,
+    layout: TextureAtlasLayout,
+    mapping: HashMap<String, AssetId<Image>>,
+}
+
 fn create_texture_atlas(
     folder: &LoadedFolder,
     textures: &mut ResMut<Assets<Image>>,
     mc_metas: &mut ResMut<Assets<McMetaAsset>>,
-) -> (TextureAtlasLayout, Handle<Image>) {
-    let mut texture_atlas_builder =
-        TextureAtlasBuilder::default();
+) -> TextureAtlas {
+    let mut texture_atlas_builder = TextureAtlasBuilder::default();
 
     let mut animated_textures = HashSet::new();
     for handle in folder.handles.iter() {
@@ -69,6 +79,7 @@ fn create_texture_atlas(
         // TODO: Actually insert animated texturess
     }
 
+    let mut mapping = HashMap::new();
     // Build a texture atlas using the individual sprites
     for handle in folder.handles.iter() {
         let id = handle.id().typed_unchecked::<Image>();
@@ -82,6 +93,8 @@ fn create_texture_atlas(
             continue;
         };
 
+        let asset_path = handle.path().unwrap().to_string();
+        mapping.insert(asset_path, id);
         texture_atlas_builder.add_texture(Some(id), texture);
     }
 
@@ -92,7 +105,217 @@ fn create_texture_atlas(
     let image = textures.get_mut(&texture).unwrap();
     image.sampler = ImageSampler::nearest();
 
-    (texture_atlas_layout, texture)
+    TextureAtlas {
+        image: texture,
+        layout: texture_atlas_layout,
+        mapping,
+    }
+}
+
+fn element_mesh(element: &Element, atlas: &TextureAtlas, textures: &Textures) -> Mesh {
+    let min = Vec3::from_array(element.from);
+    let max = Vec3::from_array(element.to);
+
+    let mut positions = Vec::new();
+    let mut normals = Vec::new();
+    let mut uvs = Vec::new();
+    let mut indices = Vec::new();
+
+    let mut common_face = |face: &ElementFace, face_positions: [[f32; 3]; 4], normal: [f32; 3]| {
+        let index_base = positions.len() as u32;
+        for pos in face_positions {
+            positions.push(pos);
+        }
+        let face_indices = [0, 1, 2, 2, 3, 0];
+        for x in face_indices.map(|x| x + index_base) {
+            indices.push(x);
+        }
+        for _ in 0..4 {
+            normals.push(normal);
+        }
+        let texture = face.texture.resolve(textures).unwrap();
+        dbg!(texture);
+        let texture_name = texture
+            .trim_start_matches("minecraft:")
+            .trim_start_matches("block/");
+        let texture_path = format!("minecraft/textures/block/{}.png", texture_name);
+        dbg!(&texture_path);
+        let image_id = atlas.mapping[&texture_path];
+        let idx_in_atlas = atlas.layout.get_texture_index(image_id).unwrap();
+        let mut atlas_rect = atlas.layout.textures[idx_in_atlas];
+        atlas_rect.min /= atlas.layout.size;
+        atlas_rect.max /= atlas.layout.size;
+
+        uvs.push([atlas_rect.min.x, atlas_rect.min.y]);
+        uvs.push([atlas_rect.max.x, atlas_rect.min.y]);
+        uvs.push([atlas_rect.max.x, atlas_rect.max.y]);
+        uvs.push([atlas_rect.min.x, atlas_rect.max.y]);
+    };
+
+    if let Some(face) = element.faces.get(&BlockFace::Up) {
+        common_face(
+            face,
+            [
+                [max.x, max.y, min.z],
+                [min.x, max.y, min.z],
+                [min.x, max.y, max.z],
+                [max.x, max.y, max.z],
+            ],
+            [0.0, 1.0, 0.0],
+        );
+    }
+    if let Some(face) = element.faces.get(&BlockFace::Down) {
+        common_face(
+            face,
+            [
+                [max.x, min.y, max.z],
+                [min.x, min.y, max.z],
+                [min.x, min.y, min.z],
+                [max.x, min.y, min.z],
+            ],
+            [0.0, -1.0, 0.0],
+        );
+    }
+    if let Some(face) = element.faces.get(&BlockFace::East) {
+        common_face(
+            face,
+            [
+                [max.x, min.y, min.z],
+                [max.x, max.y, min.z],
+                [max.x, max.y, max.z],
+                [max.x, min.y, max.z],
+            ],
+            [1.0, 0.0, 0.0],
+        );
+    }
+    if let Some(face) = element.faces.get(&BlockFace::West) {
+        common_face(
+            face,
+            [
+                [min.x, min.y, max.z],
+                [min.x, max.y, max.z],
+                [min.x, max.y, min.z],
+                [min.x, min.y, min.z],
+            ],
+            [-1.0, 0.0, 0.0],
+        );
+    }
+    if let Some(face) = element.faces.get(&BlockFace::North) {
+        common_face(
+            face,
+            [
+                [min.x, min.y, max.z],
+                [max.x, min.y, max.z],
+                [max.x, max.y, max.z],
+                [min.x, max.y, max.z],
+            ],
+            [0.0, 0.0, 1.0],
+        );
+    }
+    if let Some(face) = element.faces.get(&BlockFace::South) {
+        common_face(
+            face,
+            [
+                [min.x, max.y, min.z],
+                [max.x, max.y, min.z],
+                [max.x, min.y, min.z],
+                [min.x, min.y, min.z],
+            ],
+            [0.0, 0.0, -1.0],
+        );
+    }
+
+    Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::default(),
+    )
+    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
+    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
+    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
+    .with_inserted_indices(Indices::U32(indices))
+}
+
+fn create_mesh_for_block(block: &str, atlas: &TextureAtlas, block_models: &BlockModels) -> Mesh {
+    let model = &block_models.0[block];
+
+    let mut positions: Vec<[f32; 3]> = Vec::new();
+    let mut normals: Vec<[f32; 3]> = Vec::new();
+    let mut uvs = Vec::new();
+    let mut indices = Vec::new();
+
+    for element in &model.elements {
+        let mesh = element_mesh(element, atlas, &model.textures);
+        let rot = match element.rotation.axis {
+            Axis::X => Quat::from_rotation_x(element.rotation.angle),
+            Axis::Y => Quat::from_rotation_y(element.rotation.angle),
+            Axis::Z => Quat::from_rotation_z(element.rotation.angle),
+        };
+        let mat = Transform::from_rotation(rot).compute_matrix();
+
+        let indices_offset = positions.len() as u32;
+        let Indices::U32(mesh_indices) = mesh.indices().unwrap() else {
+            unreachable!()
+        };
+        for &x in mesh_indices {
+            indices.push(x + indices_offset);
+        }
+
+        // Comment below taken from mesh_normal_local_to_world() in mesh_functions.wgsl regarding
+        // transform normals from local to world coordinates:
+
+        // NOTE: The mikktspace method of normal mapping requires that the world normal is
+        // re-normalized in the vertex shader to match the way mikktspace bakes vertex tangents
+        // and normal maps so that the exact inverse process is applied when shading. Blender,
+        // Unity, Unreal Engine, Godot, and more all use the mikktspace method. Do not
+        // change this code unless you really know what you are doing.
+        // http://www.mikktspace.com/
+
+        let inverse_transpose_model = mat.inverse().transpose();
+        let inverse_transpose_model = Mat3 {
+            x_axis: inverse_transpose_model.x_axis.xyz(),
+            y_axis: inverse_transpose_model.y_axis.xyz(),
+            z_axis: inverse_transpose_model.z_axis.xyz(),
+        };
+        let Some(VertexAttributeValues::Float32x3(vert_normals)) =
+            &mesh.attribute(Mesh::ATTRIBUTE_NORMAL)
+        else {
+            unreachable!()
+        };
+        for n in vert_normals {
+            normals.push(
+                inverse_transpose_model
+                    .mul_vec3(Vec3::from(*n))
+                    .normalize_or_zero()
+                    .into(),
+            );
+        }
+
+        let Some(VertexAttributeValues::Float32x2(vert_uv)) = &mesh.attribute(Mesh::ATTRIBUTE_UV_0)
+        else {
+            unreachable!()
+        };
+        for uv in vert_uv {
+            uvs.push(*uv);
+        }
+
+        let Some(VertexAttributeValues::Float32x3(vert_positions)) =
+            &mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+        else {
+            unreachable!()
+        };
+        for p in vert_positions {
+            positions.push(mat.transform_point3(Vec3::from(*p)).into());
+        }
+    }
+
+    Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::default(),
+    )
+    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
+    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
+    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
+    .with_inserted_indices(Indices::U32(indices))
 }
 
 fn setup(
@@ -108,37 +331,42 @@ fn setup(
     // for testing
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut meshes: ResMut<Assets<Mesh>>,
+    mut ambient_light: ResMut<AmbientLight>,
 ) {
+    ambient_light.color = Color::WHITE;
     let loaded_folder = loaded_folders.get(&mc_textures_handle.0).unwrap();
-    let (texture_atlas_linear, linear_texture) = create_texture_atlas(
-        loaded_folder,
-        &mut textures,
-        &mut mc_metas,
-    );
-    let atlas_linear_handle = texture_atlases.add(texture_atlas_linear.clone());
+    let atlas = create_texture_atlas(loaded_folder, &mut textures, &mut mc_metas);
+    // let atlas_linear_handle = texture_atlases.add(texture_atlas_linear.clone());
 
-    let mesh = meshes.add(Cuboid::new(10.0, 10.0, 10.0).mesh());
-    commands.spawn(
-        PbrBundle {
-            mesh,
-            material: materials.add(StandardMaterial {
-                base_color_texture: Some(linear_texture),
-                alpha_mode: AlphaMode::Blend,
-                ..default()
-            }),
-            transform: Transform::from_xyz(0.0, -0.0, -50.0),
-            ..default()
-        }
-    );
+    for block in block_world.blocks.blocks_in_palette() {
+        dbg!(block);
+    }
 
-    commands.spawn(PointLightBundle {
-        transform: Transform::from_xyz(0.0, 0.0, -25.0),
-        point_light: PointLight {
-            intensity: 200.0,
+    let mesh = meshes.add(create_mesh_for_block(
+        "minecraft:repeater[delay=1,facing=east,locked=true,powered=true]",
+        &atlas,
+        &*block_models,
+    ));
+    // let mesh = meshes.add(Cuboid::new(10.0, 10.0, 10.0).mesh());
+    commands.spawn(PbrBundle {
+        mesh,
+        material: materials.add(StandardMaterial {
+            base_color_texture: Some(atlas.image),
+            alpha_mode: AlphaMode::Blend,
             ..default()
-        },
+        }),
+        transform: Transform::from_xyz(0.0, 0.0, -50.0),
         ..default()
     });
+
+    // commands.spawn(PointLightBundle {
+    //     transform: Transform::from_xyz(0.0, 0.0, -25.0),
+    //     point_light: PointLight {
+    //         intensity: 200.0,
+    //         ..default()
+    //     },
+    //     ..default()
+    // });
 }
 
 #[derive(Component)]
@@ -219,7 +447,7 @@ fn get_block_model(asset_pack: &AssetPack, block: &str) -> Result<ModelPropertie
             variant = Some(case.apply);
             break;
         }
-    };
+    }
     let model = variant.expect("Could not match multipart model").models()[0].clone();
 
     Ok(model)
@@ -231,6 +459,24 @@ struct ProcessedModel {
     elements: Vec<Element>,
     x_rot: i32,
     y_rot: i32,
+}
+
+fn resolve_textures_completely(textures: Textures) -> Textures {
+    let mut resolved_textures: std::collections::HashMap<String, Texture> = default();
+
+    for (name, texture) in textures.iter() {
+        let mut texture = texture.0.as_str();
+        loop {
+            if let Some(target) = texture.strip_prefix('#') {
+                texture = textures[target].0.as_str();
+            } else {
+                break;
+            }
+        }
+        resolved_textures.insert(name.clone(), texture.into());
+    }
+
+    resolved_textures.into()
 }
 
 fn process_model(asset_pack: &AssetPack, model: ModelProperties) -> Result<ProcessedModel> {
@@ -246,7 +492,7 @@ fn process_model(asset_pack: &AssetPack, model: ModelProperties) -> Result<Proce
             elements.append(&mut model_elements);
         }
     }
-    textures.resolve(&textures.clone());
+    textures = resolve_textures_completely(textures);
     Ok(ProcessedModel {
         textures,
         elements,
@@ -280,11 +526,36 @@ fn main() -> Result<()> {
     }
 
     App::new()
-        .add_plugins((DefaultPlugins, McDebugMenuPlugin, FlyCameraPlugin))
+        .add_plugins((
+            DefaultPlugins.set(RenderPlugin {
+                render_creation: RenderCreation::Automatic(WgpuSettings {
+                    // WARN this is a native only feature. It will not work with webgl or webgpu
+                    features: WgpuFeatures::POLYGON_MODE_LINE,
+                    ..default()
+                }),
+                ..default()
+            }),
+            // You need to add this plugin to enable wireframe rendering
+            WireframePlugin,
+        ))
+        // Wireframes can be configured with this resource. This can be changed at runtime.
+        .insert_resource(WireframeConfig {
+            // The global wireframe config enables drawing of wireframes on every mesh,
+            // except those with `NoWireframe`. Meshes with `Wireframe` will always have a
+            // wireframe, regardless of the global configuration.
+            global: true,
+            // Controls the default color of all wireframes. Used as the default color for global
+            // wireframes. Can be changed per mesh using the `WireframeColor` component.
+            default_color: Color::WHITE,
+        })
+        .add_plugins((McDebugMenuPlugin, FlyCameraPlugin))
         .init_state::<AppLoadState>()
         .init_asset::<McMetaAsset>()
         .init_asset_loader::<McMetaAssetLoader>()
-        .insert_resource(BlockWorld { blocks: schematic.blocks, entities: HashMap::new() })
+        .insert_resource(BlockWorld {
+            blocks: schematic.blocks,
+            entities: HashMap::new(),
+        })
         .insert_resource(BlockModels(models))
         .add_systems(OnEnter(AppLoadState::LoadingTextures), load_textures)
         .add_systems(
