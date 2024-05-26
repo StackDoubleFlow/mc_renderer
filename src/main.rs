@@ -121,43 +121,55 @@ fn element_mesh(element: &Element, atlas: &TextureAtlas, textures: &Textures) ->
     let mut uvs = Vec::new();
     let mut indices = Vec::new();
 
-    let mut common_face = |face: &ElementFace, face_positions: [[f32; 3]; 4], normal: [f32; 3]| {
-        let index_base = positions.len() as u32;
-        for pos in face_positions {
-            positions.push(pos);
-        }
-        let face_indices = [0, 1, 2, 2, 3, 0];
-        for x in face_indices.map(|x| x + index_base) {
-            indices.push(x);
-        }
-        for _ in 0..4 {
-            normals.push(normal);
-        }
-        let texture = face.texture.resolve(textures).unwrap();
-        let texture_name = texture
-            .trim_start_matches("minecraft:")
-            .trim_start_matches("block/");
-        let texture_path = format!("minecraft/textures/block/{}.png", texture_name);
-        let image_id = atlas.mapping[&texture_path];
-        let idx_in_atlas = atlas.layout.get_texture_index(image_id).unwrap();
-        let mut atlas_rect = atlas.layout.textures[idx_in_atlas];
-        atlas_rect.min /= atlas.layout.size;
-        atlas_rect.max /= atlas.layout.size;
+    let mut common_face =
+        |face: &ElementFace, face_positions: [([f32; 3], [f32; 2]); 4], normal: [f32; 3]| {
+            let index_base = positions.len() as u32;
+            let face_indices = [0, 1, 2, 2, 3, 0];
+            for x in face_indices.map(|x| x + index_base) {
+                indices.push(x);
+            }
+            for _ in 0..4 {
+                normals.push(normal);
+            }
 
-        uvs.push([atlas_rect.min.x, atlas_rect.min.y]);
-        uvs.push([atlas_rect.max.x, atlas_rect.min.y]);
-        uvs.push([atlas_rect.max.x, atlas_rect.max.y]);
-        uvs.push([atlas_rect.min.x, atlas_rect.max.y]);
-    };
+            // Find texture in atlas layout
+            let texture = face.texture.resolve(textures).unwrap();
+            let texture_name = texture
+                .trim_start_matches("minecraft:")
+                .trim_start_matches("block/");
+            let texture_path = format!("minecraft/textures/block/{}.png", texture_name);
+            let image_id = atlas.mapping[&texture_path];
+            let idx_in_atlas = atlas.layout.get_texture_index(image_id).unwrap();
+            let mut atlas_rect = atlas.layout.textures[idx_in_atlas];
+
+            // Convert texture pixel coordinates to normalized
+            atlas_rect.min /= atlas.layout.size;
+            atlas_rect.max /= atlas.layout.size;
+
+            for (pos, norm_uv) in face_positions {
+                let mut uv_x = norm_uv[0];
+                let mut uv_y = norm_uv[1];
+                if let Some(model_uv) = face.uv {
+                    uv_x = (model_uv[0] / 16.0).lerp(model_uv[2] / 16.0, uv_x);
+                    uv_y = (model_uv[1] / 16.0).lerp(model_uv[3] / 16.0, uv_y);
+                }
+
+                positions.push(pos);
+                uvs.push([
+                    atlas_rect.min.x.lerp(atlas_rect.max.x, uv_x),
+                    atlas_rect.min.y.lerp(atlas_rect.max.y, uv_y),
+                ])
+            }
+        };
 
     if let Some(face) = element.faces.get(&BlockFace::Up) {
         common_face(
             face,
             [
-                [max.x, max.y, min.z],
-                [min.x, max.y, min.z],
-                [min.x, max.y, max.z],
-                [max.x, max.y, max.z],
+                ([max.x, max.y, min.z], [1.0, 0.0]),
+                ([min.x, max.y, min.z], [0.0, 0.0]),
+                ([min.x, max.y, max.z], [0.0, 1.0]),
+                ([max.x, max.y, max.z], [1.0, 1.0]),
             ],
             [0.0, 1.0, 0.0],
         );
@@ -166,10 +178,10 @@ fn element_mesh(element: &Element, atlas: &TextureAtlas, textures: &Textures) ->
         common_face(
             face,
             [
-                [max.x, min.y, max.z],
-                [min.x, min.y, max.z],
-                [min.x, min.y, min.z],
-                [max.x, min.y, min.z],
+                ([max.x, min.y, max.z], [0.0, 0.0]),
+                ([min.x, min.y, max.z], [1.0, 0.0]),
+                ([min.x, min.y, min.z], [1.0, 1.0]),
+                ([max.x, min.y, min.z], [0.0, 1.0]),
             ],
             [0.0, -1.0, 0.0],
         );
@@ -178,10 +190,10 @@ fn element_mesh(element: &Element, atlas: &TextureAtlas, textures: &Textures) ->
         common_face(
             face,
             [
-                [max.x, min.y, min.z],
-                [max.x, max.y, min.z],
-                [max.x, max.y, max.z],
-                [max.x, min.y, max.z],
+                ([max.x, min.y, min.z], [1.0, 1.0]),
+                ([max.x, max.y, min.z], [1.0, 0.0]),
+                ([max.x, max.y, max.z], [0.0, 0.0]),
+                ([max.x, min.y, max.z], [0.0, 1.0]),
             ],
             [1.0, 0.0, 0.0],
         );
@@ -190,10 +202,10 @@ fn element_mesh(element: &Element, atlas: &TextureAtlas, textures: &Textures) ->
         common_face(
             face,
             [
-                [min.x, min.y, max.z],
-                [min.x, max.y, max.z],
-                [min.x, max.y, min.z],
-                [min.x, min.y, min.z],
+                ([min.x, min.y, max.z], [1.0, 1.0]),
+                ([min.x, max.y, max.z], [1.0, 0.0]),
+                ([min.x, max.y, min.z], [0.0, 0.0]),
+                ([min.x, min.y, min.z], [0.0, 1.0]),
             ],
             [-1.0, 0.0, 0.0],
         );
@@ -202,10 +214,10 @@ fn element_mesh(element: &Element, atlas: &TextureAtlas, textures: &Textures) ->
         common_face(
             face,
             [
-                [min.x, min.y, max.z],
-                [max.x, min.y, max.z],
-                [max.x, max.y, max.z],
-                [min.x, max.y, max.z],
+                ([min.x, min.y, max.z], [0.0, 1.0]),
+                ([max.x, min.y, max.z], [1.0, 1.0]),
+                ([max.x, max.y, max.z], [1.0, 0.0]),
+                ([min.x, max.y, max.z], [0.0, 0.0]),
             ],
             [0.0, 0.0, 1.0],
         );
@@ -214,10 +226,10 @@ fn element_mesh(element: &Element, atlas: &TextureAtlas, textures: &Textures) ->
         common_face(
             face,
             [
-                [min.x, max.y, min.z],
-                [max.x, max.y, min.z],
-                [max.x, min.y, min.z],
-                [min.x, min.y, min.z],
+                ([min.x, max.y, min.z], [0.0, 0.0]),
+                ([max.x, max.y, min.z], [1.0, 0.0]),
+                ([max.x, min.y, min.z], [1.0, 1.0]),
+                ([min.x, min.y, min.z], [0.0, 1.0]),
             ],
             [0.0, 0.0, -1.0],
         );
@@ -342,7 +354,7 @@ fn setup(
     }
 
     let mesh = meshes.add(create_mesh_for_block(
-        "minecraft:redstone_wire[east=none,north=side,power=0,south=none,west=side]",
+        "minecraft:redstone_torch[lit=true]",
         &atlas,
         &*block_models,
     ));
@@ -494,7 +506,10 @@ fn process_model(asset_pack: &AssetPack, models: Vec<ModelProperties>) -> Result
             }
         }
         if model_props.x != 0 || model_props.y != 0 {
-            println!("model props rotation ({}, {})", model_props.x, model_props.y);
+            println!(
+                "model props rotation ({}, {})",
+                model_props.x, model_props.y
+            );
         }
     }
     textures = resolve_textures_completely(textures);
