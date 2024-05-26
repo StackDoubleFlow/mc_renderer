@@ -243,10 +243,11 @@ fn create_mesh_for_block(block: &str, atlas: &TextureAtlas, block_models: &Block
 
     for element in &model.elements {
         let mesh = element_mesh(element, atlas, &model.textures);
+        let rot_angle = element.rotation.angle.to_degrees();
         let rot = match element.rotation.axis {
-            Axis::X => Quat::from_rotation_x(element.rotation.angle),
-            Axis::Y => Quat::from_rotation_y(element.rotation.angle),
-            Axis::Z => Quat::from_rotation_z(element.rotation.angle),
+            Axis::X => Quat::from_rotation_x(rot_angle),
+            Axis::Y => Quat::from_rotation_y(rot_angle),
+            Axis::Z => Quat::from_rotation_z(rot_angle),
         };
         let mat = Transform::from_rotation(rot).compute_matrix();
 
@@ -341,7 +342,7 @@ fn setup(
     }
 
     let mesh = meshes.add(create_mesh_for_block(
-        "minecraft:repeater[delay=1,facing=east,locked=true,powered=true]",
+        "minecraft:redstone_wire[east=none,north=side,power=0,south=none,west=side]",
         &atlas,
         &*block_models,
     ));
@@ -431,7 +432,7 @@ fn decode_props(props: &str) -> HashMap<&str, StateValue> {
     res
 }
 
-fn get_block_model(asset_pack: &AssetPack, block: &str) -> Result<ModelProperties> {
+fn get_block_model(asset_pack: &AssetPack, block: &str) -> Result<Vec<ModelProperties>> {
     let (name, props) = match block.split_once('[') {
         Some((name, props)) => (name, props.trim_end_matches(']')),
         None => (block, ""),
@@ -439,25 +440,24 @@ fn get_block_model(asset_pack: &AssetPack, block: &str) -> Result<ModelPropertie
     let blockstates = asset_pack.load_blockstates(name)?;
     let props = decode_props(props);
     let cases = blockstates.into_multipart();
-    let mut variant = None;
+    let mut models = Vec::new();
     for case in cases {
         let applies = case.applies(props.iter().map(|(k, v)| (*k, v)));
         if applies {
-            variant = Some(case.apply);
-            break;
+            // TODO: for now I'm just choosing the first instead of randomly selecting
+            models.push(case.apply.models()[0].clone());
         }
     }
-    let model = variant.expect("Could not match multipart model").models()[0].clone();
 
-    Ok(model)
+    Ok(models)
 }
 
 #[derive(Debug)]
 struct ProcessedModel {
     textures: Textures,
     elements: Vec<Element>,
-    x_rot: i32,
-    y_rot: i32,
+    // x_rot: i32,
+    // y_rot: i32,
 }
 
 fn resolve_textures_completely(textures: Textures) -> Textures {
@@ -478,25 +478,31 @@ fn resolve_textures_completely(textures: Textures) -> Textures {
     resolved_textures.into()
 }
 
-fn process_model(asset_pack: &AssetPack, model: ModelProperties) -> Result<ProcessedModel> {
-    let models = asset_pack.load_block_model_recursive(&model.model)?;
+fn process_model(asset_pack: &AssetPack, models: Vec<ModelProperties>) -> Result<ProcessedModel> {
     let mut textures = Textures::default();
     let mut elements = Vec::new();
-    for model in models.into_iter().rev() {
-        if let Some(mut model_textures) = model.textures {
-            model_textures.merge(textures);
-            textures = model_textures;
+    for model_props in models {
+        let models = asset_pack.load_block_model_recursive(&model_props.model)?;
+        for model in models.into_iter().rev() {
+            if let Some(mut model_textures) = model.textures {
+                model_textures.merge(textures);
+                textures = model_textures;
+            }
+            if let Some(mut model_elements) = model.elements {
+                // TODO: These elements need to be rotated by model_props.x and model_props.y
+                elements.append(&mut model_elements);
+            }
         }
-        if let Some(mut model_elements) = model.elements {
-            elements.append(&mut model_elements);
+        if model_props.x != 0 || model_props.y != 0 {
+            println!("model props rotation ({}, {})", model_props.x, model_props.y);
         }
     }
     textures = resolve_textures_completely(textures);
     Ok(ProcessedModel {
         textures,
         elements,
-        x_rot: model.x,
-        y_rot: model.y,
+        // x_rot: model.x,
+        // y_rot: model.y,
     })
 }
 
