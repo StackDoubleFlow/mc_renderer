@@ -245,6 +245,11 @@ fn element_mesh(element: &Element, atlas: &TextureAtlas, textures: &Textures) ->
     .with_inserted_indices(Indices::U32(indices))
 }
 
+fn rot_vert_with_orig(rot: Quat, orig: [f32; 3], vert: [f32; 3]) -> [f32; 3] {
+    let v = Vec3::from_array(vert) - Vec3::from_array(orig);
+    Transform::from_rotation(rot).transform_point(v).to_array()
+}
+
 fn create_mesh_for_block(block: &str, atlas: &TextureAtlas, block_models: &BlockModels) -> Mesh {
     let model = &block_models.0[block];
 
@@ -253,15 +258,21 @@ fn create_mesh_for_block(block: &str, atlas: &TextureAtlas, block_models: &Block
     let mut uvs = Vec::new();
     let mut indices = Vec::new();
 
-    for element in &model.elements {
+    for (element, model_rot) in model.elements.iter().zip(&model.element_rots) {
+        let model_rot = Quat::from_euler(
+            EulerRot::XYZ,
+            (model_rot.0 as f32).to_radians(),
+            (model_rot.1 as f32).to_radians(),
+            0.0,
+        );
         let mesh = element_mesh(element, atlas, &model.textures);
-        let rot_angle = element.rotation.angle.to_degrees();
-        let rot = match element.rotation.axis {
+        let rot_angle = element.rotation.angle.to_radians();
+        let elem_rot = match element.rotation.axis {
             Axis::X => Quat::from_rotation_x(rot_angle),
             Axis::Y => Quat::from_rotation_y(rot_angle),
             Axis::Z => Quat::from_rotation_z(rot_angle),
         };
-        let mat = Transform::from_rotation(rot).compute_matrix();
+        let mat = Transform::from_rotation(model_rot * elem_rot).compute_matrix();
 
         let indices_offset = positions.len() as u32;
         let Indices::U32(mesh_indices) = mesh.indices().unwrap() else {
@@ -314,8 +325,10 @@ fn create_mesh_for_block(block: &str, atlas: &TextureAtlas, block_models: &Block
         else {
             unreachable!()
         };
-        for p in vert_positions {
-            positions.push(mat.transform_point3(Vec3::from(*p)).into());
+        for &p in vert_positions {
+            let p = rot_vert_with_orig(model_rot, [8.0, 8.0, 8.0], p);
+            let p = rot_vert_with_orig(elem_rot, element.rotation.origin, p);
+            positions.push(p);
         }
     }
 
@@ -354,7 +367,7 @@ fn setup(
     }
 
     let mesh = meshes.add(create_mesh_for_block(
-        "minecraft:redstone_torch[lit=true]",
+        "minecraft:redstone_wall_torch[facing=east,lit=false]",
         &atlas,
         &*block_models,
     ));
@@ -461,6 +474,10 @@ fn get_block_model(asset_pack: &AssetPack, block: &str) -> Result<Vec<ModelPrope
         }
     }
 
+    if block == "minecraft:redstone_wire[east=side,north=side,power=3,south=none,west=side]" {
+        dbg!(&models);
+    }
+
     Ok(models)
 }
 
@@ -468,8 +485,7 @@ fn get_block_model(asset_pack: &AssetPack, block: &str) -> Result<Vec<ModelPrope
 struct ProcessedModel {
     textures: Textures,
     elements: Vec<Element>,
-    // x_rot: i32,
-    // y_rot: i32,
+    element_rots: Vec<(i32, i32)>,
 }
 
 fn resolve_textures_completely(textures: Textures) -> Textures {
@@ -493,6 +509,7 @@ fn resolve_textures_completely(textures: Textures) -> Textures {
 fn process_model(asset_pack: &AssetPack, models: Vec<ModelProperties>) -> Result<ProcessedModel> {
     let mut textures = Textures::default();
     let mut elements = Vec::new();
+    let mut element_rots = Vec::new();
     for model_props in models {
         let models = asset_pack.load_block_model_recursive(&model_props.model)?;
         for model in models.into_iter().rev() {
@@ -501,23 +518,18 @@ fn process_model(asset_pack: &AssetPack, models: Vec<ModelProperties>) -> Result
                 textures = model_textures;
             }
             if let Some(mut model_elements) = model.elements {
-                // TODO: These elements need to be rotated by model_props.x and model_props.y
+                for _ in 0..model_elements.len() {
+                    element_rots.push((model_props.x, model_props.y));
+                }
                 elements.append(&mut model_elements);
             }
-        }
-        if model_props.x != 0 || model_props.y != 0 {
-            println!(
-                "model props rotation ({}, {})",
-                model_props.x, model_props.y
-            );
         }
     }
     textures = resolve_textures_completely(textures);
     Ok(ProcessedModel {
         textures,
         elements,
-        // x_rot: model.x,
-        // y_rot: model.y,
+        element_rots,
     })
 }
 
