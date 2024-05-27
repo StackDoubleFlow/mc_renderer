@@ -110,6 +110,23 @@ fn create_texture_atlas(
     }
 }
 
+fn get_tint_for_block(block_name: &str, block_props: &HashMap<&str, StateValue>, tint_idx: usize) -> Color {
+    if block_name == "minecraft:redstone_wire" && tint_idx == 0 {
+        let power: f32 = block_props.get("power").map(|prop| match prop {
+            StateValue::String(str) => str.parse().unwrap_or_default(),
+            _ => 0.0,
+        }).unwrap_or_default();
+        let f = power / 15.0;
+        let r = f * 0.6 + if f > 0.0 { 0.4 } else { 0.3 };
+        let g = (f * f * 0.7 - 0.5).clamp(0.0, 1.0);
+        let b = (f * f * 0.6 - 0.7).clamp(0.0, 1.0);
+        Color::rgb(r, g, b)
+    } else {
+        warn!("Unknown tint with block {} and idx {}", block_name, tint_idx);
+        Color::WHITE
+    }
+}
+
 fn element_mesh(element: &Element, atlas: &TextureAtlas, textures: &Textures) -> Mesh {
     let min = Vec3::from_array(element.from);
     let max = Vec3::from_array(element.to);
@@ -361,7 +378,7 @@ fn setup(
     }
 
     let mesh = meshes.add(create_mesh_for_block(
-        "minecraft:redstone_wall_torch[facing=east,lit=false]",
+        "minecraft:sea_pickle[pickles=2,waterlogged=false]",
         &atlas,
         &*block_models,
     ));
