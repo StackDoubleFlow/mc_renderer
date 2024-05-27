@@ -23,9 +23,7 @@ use minecraft_assets::api::AssetPack;
 use minecraft_assets::schemas::blockstates::multipart::StateValue;
 use minecraft_assets::schemas::blockstates::ModelProperties;
 use minecraft_assets::schemas::models::{Axis, BlockFace, Element, ElementFace, Texture, Textures};
-use minecraft_assets::schemas::BlockStates;
 use std::fs;
-use std::sync::Mutex;
 
 #[derive(States, Debug, Clone, PartialEq, Eq, Hash, Default)]
 enum AppLoadState {
@@ -345,14 +343,11 @@ fn create_mesh_for_block(block: &str, atlas: &TextureAtlas, block_models: &Block
 fn setup(
     mut commands: Commands,
     mc_textures_handle: Res<McTexturesFolder>,
-    asset_server: Res<AssetServer>,
     block_models: Res<BlockModels>,
     block_world: Res<BlockWorld>,
-    mut texture_atlases: ResMut<Assets<TextureAtlasLayout>>,
     loaded_folders: Res<Assets<LoadedFolder>>,
     mut textures: ResMut<Assets<Image>>,
     mut mc_metas: ResMut<Assets<McMetaAsset>>,
-    // for testing
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut ambient_light: ResMut<AmbientLight>,
@@ -360,7 +355,6 @@ fn setup(
     ambient_light.color = Color::WHITE;
     let loaded_folder = loaded_folders.get(&mc_textures_handle.0).unwrap();
     let atlas = create_texture_atlas(loaded_folder, &mut textures, &mut mc_metas);
-    // let atlas_linear_handle = texture_atlases.add(texture_atlas_linear.clone());
 
     for block in block_world.blocks.blocks_in_palette() {
         dbg!(block);
@@ -371,7 +365,6 @@ fn setup(
         &atlas,
         &*block_models,
     ));
-    // let mesh = meshes.add(Cuboid::new(10.0, 10.0, 10.0).mesh());
     commands.spawn(PbrBundle {
         mesh,
         material: materials.add(StandardMaterial {
@@ -427,14 +420,6 @@ fn mouse_grab(
         window.cursor.grab_mode = CursorGrabMode::None;
         window.cursor.visible = true;
     }
-}
-
-struct InputWorld {
-    palette: Vec<String>,
-    blocks: Vec<u16>,
-    dim_x: usize,
-    dim_y: usize,
-    dim_z: usize,
 }
 
 #[derive(Resource)]
