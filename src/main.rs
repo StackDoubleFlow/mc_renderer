@@ -489,10 +489,6 @@ fn get_block_model(asset_pack: &AssetPack, block: &str) -> Result<Vec<ModelPrope
         }
     }
 
-    if block == "minecraft:redstone_wire[east=side,north=side,power=13,south=side,west=none]" {
-        dbg!(&models);
-    }
-
     Ok(models)
 }
 
