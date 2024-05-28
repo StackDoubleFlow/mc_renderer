@@ -110,19 +110,29 @@ fn create_texture_atlas(
     }
 }
 
-fn get_tint_for_block(block_name: &str, block_props: &HashMap<&str, StateValue>, tint_idx: usize) -> Color {
+fn get_tint_for_block(
+    block_name: &str,
+    block_props: &HashMap<&str, StateValue>,
+    tint_idx: usize,
+) -> Color {
     if block_name == "minecraft:redstone_wire" && tint_idx == 0 {
-        let power: f32 = block_props.get("power").map(|prop| match prop {
-            StateValue::String(str) => str.parse().unwrap_or_default(),
-            _ => 0.0,
-        }).unwrap_or_default();
+        let power: f32 = block_props
+            .get("power")
+            .map(|prop| match prop {
+                StateValue::String(str) => str.parse().unwrap_or_default(),
+                _ => 0.0,
+            })
+            .unwrap_or_default();
         let f = power / 15.0;
         let r = f * 0.6 + if f > 0.0 { 0.4 } else { 0.3 };
         let g = (f * f * 0.7 - 0.5).clamp(0.0, 1.0);
         let b = (f * f * 0.6 - 0.7).clamp(0.0, 1.0);
         Color::rgb(r, g, b)
     } else {
-        warn!("Unknown tint with block {} and idx {}", block_name, tint_idx);
+        warn!(
+            "Unknown tint with block {} and idx {}",
+            block_name, tint_idx
+        );
         Color::WHITE
     }
 }
@@ -266,84 +276,87 @@ fn rot_vert_with_orig(rot: Quat, orig: [f32; 3], vert: [f32; 3]) -> [f32; 3] {
 }
 
 fn create_mesh_for_block(block: &str, atlas: &TextureAtlas, block_models: &BlockModels) -> Mesh {
-    let model = &block_models.0[block];
+    let models = &block_models.0[block];
 
     let mut positions: Vec<[f32; 3]> = Vec::new();
     let mut normals: Vec<[f32; 3]> = Vec::new();
     let mut uvs = Vec::new();
     let mut indices = Vec::new();
 
-    for (element, model_rot) in model.elements.iter().zip(&model.element_rots) {
-        let model_rot = Quat::from_euler(
-            EulerRot::XYZ,
-            (model_rot.0 as f32).to_radians(),
-            (model_rot.1 as f32).to_radians(),
-            0.0,
-        );
-        let mesh = element_mesh(element, atlas, &model.textures);
-        let rot_angle = element.rotation.angle.to_radians();
-        let elem_rot = match element.rotation.axis {
-            Axis::X => Quat::from_rotation_x(rot_angle),
-            Axis::Y => Quat::from_rotation_y(rot_angle),
-            Axis::Z => Quat::from_rotation_z(rot_angle),
-        };
-        let mat = Transform::from_rotation(model_rot * elem_rot).compute_matrix();
-
-        let indices_offset = positions.len() as u32;
-        let Indices::U32(mesh_indices) = mesh.indices().unwrap() else {
-            unreachable!()
-        };
-        for &x in mesh_indices {
-            indices.push(x + indices_offset);
-        }
-
-        // Comment below taken from mesh_normal_local_to_world() in mesh_functions.wgsl regarding
-        // transform normals from local to world coordinates:
-
-        // NOTE: The mikktspace method of normal mapping requires that the world normal is
-        // re-normalized in the vertex shader to match the way mikktspace bakes vertex tangents
-        // and normal maps so that the exact inverse process is applied when shading. Blender,
-        // Unity, Unreal Engine, Godot, and more all use the mikktspace method. Do not
-        // change this code unless you really know what you are doing.
-        // http://www.mikktspace.com/
-
-        let inverse_transpose_model = mat.inverse().transpose();
-        let inverse_transpose_model = Mat3 {
-            x_axis: inverse_transpose_model.x_axis.xyz(),
-            y_axis: inverse_transpose_model.y_axis.xyz(),
-            z_axis: inverse_transpose_model.z_axis.xyz(),
-        };
-        let Some(VertexAttributeValues::Float32x3(vert_normals)) =
-            &mesh.attribute(Mesh::ATTRIBUTE_NORMAL)
-        else {
-            unreachable!()
-        };
-        for n in vert_normals {
-            normals.push(
-                inverse_transpose_model
-                    .mul_vec3(Vec3::from(*n))
-                    .normalize_or_zero()
-                    .into(),
+    for model in models {
+        for element in &model.elements {
+            let model_rot = Quat::from_euler(
+                EulerRot::XYZ,
+                (model.model_rot.0 as f32).to_radians(),
+                (model.model_rot.1 as f32).to_radians(),
+                0.0,
             );
-        }
+            let mesh = element_mesh(element, atlas, &model.textures);
+            let rot_angle = element.rotation.angle.to_radians();
+            let elem_rot = match element.rotation.axis {
+                Axis::X => Quat::from_rotation_x(rot_angle),
+                Axis::Y => Quat::from_rotation_y(rot_angle),
+                Axis::Z => Quat::from_rotation_z(rot_angle),
+            };
+            let mat = Transform::from_rotation(model_rot * elem_rot).compute_matrix();
 
-        let Some(VertexAttributeValues::Float32x2(vert_uv)) = &mesh.attribute(Mesh::ATTRIBUTE_UV_0)
-        else {
-            unreachable!()
-        };
-        for uv in vert_uv {
-            uvs.push(*uv);
-        }
+            let indices_offset = positions.len() as u32;
+            let Indices::U32(mesh_indices) = mesh.indices().unwrap() else {
+                unreachable!()
+            };
+            for &x in mesh_indices {
+                indices.push(x + indices_offset);
+            }
 
-        let Some(VertexAttributeValues::Float32x3(vert_positions)) =
-            &mesh.attribute(Mesh::ATTRIBUTE_POSITION)
-        else {
-            unreachable!()
-        };
-        for &p in vert_positions {
-            let p = rot_vert_with_orig(model_rot, [8.0, 8.0, 8.0], p);
-            let p = rot_vert_with_orig(elem_rot, element.rotation.origin, p);
-            positions.push(p);
+            // Comment below taken from mesh_normal_local_to_world() in mesh_functions.wgsl regarding
+            // transform normals from local to world coordinates:
+
+            // NOTE: The mikktspace method of normal mapping requires that the world normal is
+            // re-normalized in the vertex shader to match the way mikktspace bakes vertex tangents
+            // and normal maps so that the exact inverse process is applied when shading. Blender,
+            // Unity, Unreal Engine, Godot, and more all use the mikktspace method. Do not
+            // change this code unless you really know what you are doing.
+            // http://www.mikktspace.com/
+
+            let inverse_transpose_model = mat.inverse().transpose();
+            let inverse_transpose_model = Mat3 {
+                x_axis: inverse_transpose_model.x_axis.xyz(),
+                y_axis: inverse_transpose_model.y_axis.xyz(),
+                z_axis: inverse_transpose_model.z_axis.xyz(),
+            };
+            let Some(VertexAttributeValues::Float32x3(vert_normals)) =
+                &mesh.attribute(Mesh::ATTRIBUTE_NORMAL)
+            else {
+                unreachable!()
+            };
+            for n in vert_normals {
+                normals.push(
+                    inverse_transpose_model
+                        .mul_vec3(Vec3::from(*n))
+                        .normalize_or_zero()
+                        .into(),
+                );
+            }
+
+            let Some(VertexAttributeValues::Float32x2(vert_uv)) =
+                &mesh.attribute(Mesh::ATTRIBUTE_UV_0)
+            else {
+                unreachable!()
+            };
+            for uv in vert_uv {
+                uvs.push(*uv);
+            }
+
+            let Some(VertexAttributeValues::Float32x3(vert_positions)) =
+                &mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+            else {
+                unreachable!()
+            };
+            for &p in vert_positions {
+                let p = rot_vert_with_orig(model_rot, [8.0, 8.0, 8.0], p);
+                let p = rot_vert_with_orig(elem_rot, element.rotation.origin, p);
+                positions.push(p);
+            }
         }
     }
 
@@ -378,7 +391,7 @@ fn setup(
     }
 
     let mesh = meshes.add(create_mesh_for_block(
-        "minecraft:sea_pickle[pickles=2,waterlogged=false]",
+        "minecraft:redstone_wire[east=none,north=side,power=6,south=none,west=up]",
         &atlas,
         &*block_models,
     ));
@@ -476,7 +489,7 @@ fn get_block_model(asset_pack: &AssetPack, block: &str) -> Result<Vec<ModelPrope
         }
     }
 
-    if block == "minecraft:redstone_wire[east=side,north=side,power=3,south=none,west=side]" {
+    if block == "minecraft:redstone_wire[east=side,north=side,power=13,south=side,west=none]" {
         dbg!(&models);
     }
 
@@ -485,9 +498,9 @@ fn get_block_model(asset_pack: &AssetPack, block: &str) -> Result<Vec<ModelPrope
 
 #[derive(Debug)]
 struct ProcessedModel {
+    model_rot: (i32, i32),
     textures: Textures,
     elements: Vec<Element>,
-    element_rots: Vec<(i32, i32)>,
 }
 
 fn resolve_textures_completely(textures: Textures) -> Textures {
@@ -508,11 +521,14 @@ fn resolve_textures_completely(textures: Textures) -> Textures {
     resolved_textures.into()
 }
 
-fn process_model(asset_pack: &AssetPack, models: Vec<ModelProperties>) -> Result<ProcessedModel> {
-    let mut textures = Textures::default();
-    let mut elements = Vec::new();
-    let mut element_rots = Vec::new();
+fn process_model(
+    asset_pack: &AssetPack,
+    models: Vec<ModelProperties>,
+) -> Result<Vec<ProcessedModel>> {
+    let mut processed_models = Vec::new();
     for model_props in models {
+        let mut textures = Textures::default();
+        let mut elements = Vec::new();
         let models = asset_pack.load_block_model_recursive(&model_props.model)?;
         for model in models.into_iter().rev() {
             if let Some(mut model_textures) = model.textures {
@@ -520,23 +536,21 @@ fn process_model(asset_pack: &AssetPack, models: Vec<ModelProperties>) -> Result
                 textures = model_textures;
             }
             if let Some(mut model_elements) = model.elements {
-                for _ in 0..model_elements.len() {
-                    element_rots.push((model_props.x, model_props.y));
-                }
                 elements.append(&mut model_elements);
             }
         }
+        textures = resolve_textures_completely(textures);
+        processed_models.push(ProcessedModel {
+            model_rot: (model_props.x, model_props.y),
+            textures,
+            elements,
+        });
     }
-    textures = resolve_textures_completely(textures);
-    Ok(ProcessedModel {
-        textures,
-        elements,
-        element_rots,
-    })
+    Ok(processed_models)
 }
 
 #[derive(Resource)]
-struct BlockModels(HashMap<String, ProcessedModel>);
+struct BlockModels(HashMap<String, Vec<ProcessedModel>>);
 
 fn main() -> Result<()> {
     color_eyre::install()?;
