@@ -148,17 +148,11 @@ fn element_mesh(element: &Element, atlas: &TextureAtlas, textures: &Textures) ->
 
     let mut common_face =
         |face: &ElementFace, face_positions: [([f32; 3], [f32; 2]); 4], normal: [f32; 3]| {
-            let index_base = positions.len() as u32;
-            let face_indices = [0, 1, 2, 2, 3, 0];
-            for x in face_indices.map(|x| x + index_base) {
-                indices.push(x);
-            }
-            for _ in 0..4 {
-                normals.push(normal);
-            }
-
             // Find texture in atlas layout
-            let texture = face.texture.resolve(textures).unwrap();
+            let Some(texture) = face.texture.resolve(textures) else {
+                warn!("Could not resolve texture variable: {:?}", face.texture);
+                return;
+            };
             let texture_name = texture
                 .trim_start_matches("minecraft:")
                 .trim_start_matches("block/");
@@ -170,6 +164,15 @@ fn element_mesh(element: &Element, atlas: &TextureAtlas, textures: &Textures) ->
             // Convert texture pixel coordinates to normalized
             atlas_rect.min /= atlas.layout.size;
             atlas_rect.max /= atlas.layout.size;
+
+            let index_base = positions.len() as u32;
+            let face_indices = [0, 1, 2, 2, 3, 0];
+            for x in face_indices.map(|x| x + index_base) {
+                indices.push(x);
+            }
+            for _ in 0..4 {
+                normals.push(normal);
+            }
 
             for (pos, norm_uv) in face_positions {
                 let mut uv_x = norm_uv[0];
@@ -386,35 +389,41 @@ fn setup(
     let loaded_folder = loaded_folders.get(&mc_textures_handle.0).unwrap();
     let atlas = create_texture_atlas(loaded_folder, &mut textures, &mut mc_metas);
 
+    let mut mesh_map = HashMap::new();
     for block in block_world.blocks.blocks_in_palette() {
-        dbg!(block);
+        let mesh = meshes.add(create_mesh_for_block(block, &atlas, &*block_models));
+        mesh_map.insert(block.to_string(), mesh);
     }
 
-    let mesh = meshes.add(create_mesh_for_block(
-        "minecraft:redstone_wire[east=none,north=side,power=6,south=none,west=up]",
-        &atlas,
-        &*block_models,
-    ));
-    commands.spawn(PbrBundle {
-        mesh,
-        material: materials.add(StandardMaterial {
-            base_color_texture: Some(atlas.image),
-            alpha_mode: AlphaMode::Blend,
-            unlit: true,
-            ..default()
-        }),
-        transform: Transform::from_xyz(0.0, 0.0, -50.0),
+    let material = materials.add(StandardMaterial {
+        base_color_texture: Some(atlas.image),
+        alpha_mode: AlphaMode::Blend,
+        unlit: true,
         ..default()
     });
 
-    // commands.spawn(PointLightBundle {
-    //     transform: Transform::from_xyz(0.0, 0.0, -25.0),
-    //     point_light: PointLight {
-    //         intensity: 200.0,
-    //         ..default()
-    //     },
-    //     ..default()
-    // });
+    let (sx, sy, sz) = block_world.blocks.size();
+    for x in 0..sx {
+        for y in 0..sy {
+            for z in 0..sz {
+                let block = block_world.blocks.get_block_at(x, y, z);
+                if block == "minecraft:air" {
+                    continue;
+                }
+                let mesh = mesh_map[block].clone();
+                commands.spawn(PbrBundle {
+                    mesh,
+                    material: material.clone(),
+                    transform: Transform {
+                        translation: Vec3::new(x as f32, y as f32, z as f32),
+                        rotation: Quat::IDENTITY,
+                        scale: Vec3::splat(1.0 / 16.0),
+                    },
+                    ..default()
+                });
+            }
+        }
+    }
 }
 
 #[derive(Component)]
