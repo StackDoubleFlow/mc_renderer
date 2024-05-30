@@ -34,12 +34,12 @@
           devShells.default = mkShell {
 	          inherit buildInputs nativeBuildInputs;
             RUSTFLAGS = "-Clink-arg=-fuse-ld=${pkgs.mold}/bin/mold";
-            shellHook = ''export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:${pkgs.lib.makeLibraryPath [
-              pkgs.wayland
-              pkgs.udev
-              pkgs.alsaLib
-              pkgs.libxkbcommon
-              pkgs.vulkan-loader
+            shellHook = ''export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:${lib.makeLibraryPath [
+              wayland
+              udev
+              alsaLib
+              libxkbcommon
+              vulkan-loader
             ]}"'';
           };
         }
