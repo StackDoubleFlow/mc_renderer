@@ -25,8 +25,9 @@
             mold clang
           ];
           buildInputs = with pkgs; [
-            wayland wayland-protocols
-            alsaLib udev
+            udev alsa-lib vulkan-loader
+            xorg.libX11 xorg.libXcursor xorg.libXi xorg.libXrandr # To use the x11 feature
+            libxkbcommon wayland # To use the wayland feature
           ];
         in
         with pkgs;
@@ -34,13 +35,7 @@
           devShells.default = mkShell {
 	          inherit buildInputs nativeBuildInputs;
             RUSTFLAGS = "-Clink-arg=-fuse-ld=${pkgs.mold}/bin/mold";
-            shellHook = ''export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:${lib.makeLibraryPath [
-              wayland
-              udev
-              alsaLib
-              libxkbcommon
-              vulkan-loader
-            ]}"'';
+            LD_LIBRARY_PATH = lib.makeLibraryPath buildInputs;
           };
         }
       );
