@@ -295,8 +295,8 @@ fn create_mesh_for_block(
         for element in &model.elements {
             let model_rot = Quat::from_euler(
                 EulerRot::XYZ,
-                (model.model_rot.0 as f32).to_radians(),
-                (model.model_rot.1 as f32).to_radians(),
+                (-model.model_rot.0 as f32).to_radians(),
+                (-model.model_rot.1 as f32).to_radians(),
                 0.0,
             );
             let mesh = element_mesh(element, atlas, &model.textures);
