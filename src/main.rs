@@ -238,7 +238,7 @@ fn element_mesh(element: &Element, atlas: &TextureAtlas, textures: &Textures) ->
             [-1.0, 0.0, 0.0],
         );
     }
-    if let Some(face) = element.faces.get(&BlockFace::North) {
+    if let Some(face) = element.faces.get(&BlockFace::South) {
         common_face(
             face,
             [
@@ -250,7 +250,7 @@ fn element_mesh(element: &Element, atlas: &TextureAtlas, textures: &Textures) ->
             [0.0, 0.0, 1.0],
         );
     }
-    if let Some(face) = element.faces.get(&BlockFace::South) {
+    if let Some(face) = element.faces.get(&BlockFace::North) {
         common_face(
             face,
             [
@@ -274,11 +274,16 @@ fn element_mesh(element: &Element, atlas: &TextureAtlas, textures: &Textures) ->
 }
 
 fn rot_vert_with_orig(rot: Quat, orig: [f32; 3], vert: [f32; 3]) -> [f32; 3] {
-    let v = Vec3::from_array(vert) - Vec3::from_array(orig);
-    Transform::from_rotation(rot).transform_point(v).to_array()
+    let orig = Vec3::from_array(orig);
+    let v = Vec3::from_array(vert) - orig;
+    (Transform::from_rotation(rot).transform_point(v) + orig).to_array()
 }
 
-fn create_mesh_for_block(block: &str, atlas: &TextureAtlas, block_models: &BlockModels) -> Mesh {
+fn create_mesh_for_block(
+    block: &str,
+    atlas: &TextureAtlas,
+    block_models: &BlockModels,
+) -> (Mesh, Option<Color>) {
     let models = &block_models.0[block];
 
     let mut positions: Vec<[f32; 3]> = Vec::new();
@@ -286,7 +291,7 @@ fn create_mesh_for_block(block: &str, atlas: &TextureAtlas, block_models: &Block
     let mut uvs = Vec::new();
     let mut indices = Vec::new();
 
-    for model in models {
+    for model in &models.0 {
         for element in &model.elements {
             let model_rot = Quat::from_euler(
                 EulerRot::XYZ,
@@ -311,8 +316,8 @@ fn create_mesh_for_block(block: &str, atlas: &TextureAtlas, block_models: &Block
                 indices.push(x + indices_offset);
             }
 
-            // Comment below taken from mesh_normal_local_to_world() in mesh_functions.wgsl regarding
-            // transform normals from local to world coordinates:
+            // Comment below taken from mesh_normal_local_to_world() in mesh_functions.wgsl
+            // regarding transform normals from local to world coordinates:
 
             // NOTE: The mikktspace method of normal mapping requires that the world normal is
             // re-normalized in the vertex shader to match the way mikktspace bakes vertex tangents
@@ -356,21 +361,24 @@ fn create_mesh_for_block(block: &str, atlas: &TextureAtlas, block_models: &Block
                 unreachable!()
             };
             for &p in vert_positions {
-                let p = rot_vert_with_orig(model_rot, [8.0, 8.0, 8.0], p);
                 let p = rot_vert_with_orig(elem_rot, element.rotation.origin, p);
+                let p = rot_vert_with_orig(model_rot, [8.0, 8.0, 8.0], p);
                 positions.push(p);
             }
         }
     }
 
-    Mesh::new(
-        PrimitiveTopology::TriangleList,
-        RenderAssetUsages::default(),
+    (
+        Mesh::new(
+            PrimitiveTopology::TriangleList,
+            RenderAssetUsages::default(),
+        )
+        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
+        .with_inserted_indices(Indices::U32(indices)),
+        models.1,
     )
-    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
-    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
-    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
-    .with_inserted_indices(Indices::U32(indices))
 }
 
 fn setup(
@@ -391,16 +399,19 @@ fn setup(
 
     let mut mesh_map = HashMap::new();
     for block in block_world.blocks.blocks_in_palette() {
-        let mesh = meshes.add(create_mesh_for_block(block, &atlas, &*block_models));
-        mesh_map.insert(block.to_string(), mesh);
+        let (mesh, tint) = create_mesh_for_block(block, &atlas, &*block_models);
+        let mesh = meshes.add(mesh);
+        mesh_map.insert(block.to_string(), (mesh, tint));
     }
 
-    let material = materials.add(StandardMaterial {
+    let base_material = StandardMaterial {
         base_color_texture: Some(atlas.image),
         alpha_mode: AlphaMode::Blend,
         unlit: true,
         ..default()
-    });
+    };
+    let material = materials.add(base_material.clone());
+    let mut tinted_materials = HashMap::new();
 
     let (sx, sy, sz) = block_world.blocks.size();
     for x in 0..sx {
@@ -410,10 +421,23 @@ fn setup(
                 if block == "minecraft:air" {
                     continue;
                 }
-                let mesh = mesh_map[block].clone();
+                let (mesh, tint) = mesh_map[block].clone();
+                let material = if let Some(tint) = tint {
+                    tinted_materials
+                        .entry(tint.as_rgba_u32())
+                        .or_insert_with(|| {
+                            materials.add(StandardMaterial {
+                                base_color: tint,
+                                ..base_material.clone()
+                            })
+                        })
+                        .clone()
+                } else {
+                    material.clone()
+                };
                 commands.spawn(PbrBundle {
                     mesh,
-                    material: material.clone(),
+                    material,
                     transform: Transform {
                         translation: Vec3::new(x as f32, y as f32, z as f32),
                         rotation: Quat::IDENTITY,
@@ -481,13 +505,24 @@ fn decode_props(props: &str) -> HashMap<&str, StateValue> {
     res
 }
 
-fn get_block_model(asset_pack: &AssetPack, block: &str) -> Result<Vec<ModelProperties>> {
+fn get_block_model(
+    asset_pack: &AssetPack,
+    block: &str,
+) -> Result<(Vec<ModelProperties>, Option<Color>)> {
     let (name, props) = match block.split_once('[') {
         Some((name, props)) => (name, props.trim_end_matches(']')),
         None => (block, ""),
     };
     let blockstates = asset_pack.load_blockstates(name)?;
     let props = decode_props(props);
+
+    // This is hackish but whatever for now
+    let tint = if name == "minecraft:redstone_wire" {
+        Some(get_tint_for_block(name, &props, 0))
+    } else {
+        None
+    };
+
     let cases = blockstates.into_multipart();
     let mut models = Vec::new();
     for case in cases {
@@ -498,7 +533,7 @@ fn get_block_model(asset_pack: &AssetPack, block: &str) -> Result<Vec<ModelPrope
         }
     }
 
-    Ok(models)
+    Ok((models, tint))
 }
 
 #[derive(Debug)]
@@ -555,7 +590,7 @@ fn process_model(
 }
 
 #[derive(Resource)]
-struct BlockModels(HashMap<String, Vec<ProcessedModel>>);
+struct BlockModels(HashMap<String, (Vec<ProcessedModel>, Option<Color>)>);
 
 fn main() -> Result<()> {
     color_eyre::install()?;
@@ -570,9 +605,9 @@ fn main() -> Result<()> {
             for z in 0..sz {
                 let block = schematic.blocks.get_block_at(x, y, z);
                 if !models.contains_key(block) {
-                    let model_properties = get_block_model(&asset_pack, block)?;
+                    let (model_properties, tint) = get_block_model(&asset_pack, block)?;
                     let model = process_model(&asset_pack, model_properties)?;
-                    models.insert(block.to_string(), model);
+                    models.insert(block.to_string(), (model, tint));
                 }
             }
         }

@@ -1,1 +1,1 @@
-RUST_BACKTRACE=1 cargo run -- --client-jar /home/stack/.local/share/PrismLauncher/libraries/com/mojang/minecraft/1.18.2/minecraft-1.18.2-client.jar --schem-file /home/stack/ledump/MCHPRS/run/schems/bycl.schem
+RUST_BACKTRACE=1 cargo run -- --client-jar /home/stack/.local/share/PrismLauncher/libraries/com/mojang/minecraft/1.18.2/minecraft-1.18.2-client.jar --schem-file /home/stack/ledump/MCHPRS/run/schems/3t_cca.schem
