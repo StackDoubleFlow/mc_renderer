@@ -4,6 +4,9 @@ mod debug_menu;
 mod mc_meta;
 
 use bevy::asset::LoadedFolder;
+use bevy::diagnostic::{
+    EntityCountDiagnosticsPlugin, FrameTimeDiagnosticsPlugin, SystemInformationDiagnosticsPlugin,
+};
 use bevy::pbr::wireframe::{WireframeConfig, WireframePlugin};
 use bevy::prelude::*;
 use bevy::render::mesh::{Indices, PrimitiveTopology, VertexAttributeValues};
@@ -17,6 +20,7 @@ use bevy::window::{CursorGrabMode, PrimaryWindow};
 use bevy_fly_camera::{FlyCamera, FlyCameraPlugin};
 use color_eyre::Result;
 use debug_menu::McDebugMenuPlugin;
+use iyes_perf_ui::{PerfUiCompleteBundle, PerfUiPlugin};
 use mc_meta::{McMetaAsset, McMetaAssetLoader};
 use mc_schems::{Blocks, Schematic};
 use minecraft_assets::api::AssetPack;
@@ -462,6 +466,7 @@ fn setup_camera(mut commands: Commands) {
             enabled: false,
             ..default()
         });
+    commands.spawn(PerfUiCompleteBundle::default());
 }
 
 fn mouse_grab(
@@ -637,6 +642,13 @@ fn main() -> Result<()> {
             default_color: Color::WHITE,
         })
         .add_plugins((McDebugMenuPlugin, FlyCameraPlugin))
+        // Perf UI
+        .add_plugins((
+            PerfUiPlugin,
+            FrameTimeDiagnosticsPlugin,
+            EntityCountDiagnosticsPlugin,
+            SystemInformationDiagnosticsPlugin,
+        ))
         .init_state::<AppLoadState>()
         .init_asset::<McMetaAsset>()
         .init_asset_loader::<McMetaAssetLoader>()

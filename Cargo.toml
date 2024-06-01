@@ -21,6 +21,7 @@ bevy_fly_camera = { git = "https://github.com/Cyannide/bevy_fly_camera.git" }
 thiserror = "1.0.58"
 # Not yet published to crates.io
 mc_schems = { git = "https://github.com/StackDoubleFlow/mc_schems.git" }
+iyes_perf_ui = "0.2"
 
 # Enable a small amount of optimization in debug mode
 [profile.dev]
