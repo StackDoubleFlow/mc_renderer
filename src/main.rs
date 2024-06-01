@@ -61,6 +61,7 @@ fn check_textures(
 struct TextureAtlas {
     image: Handle<Image>,
     layout: TextureAtlasLayout,
+    has_transparency: Vec<bool>,
     mapping: HashMap<String, AssetId<Image>>,
 }
 
@@ -107,9 +108,27 @@ fn create_texture_atlas(
     let image = textures.get_mut(&texture).unwrap();
     image.sampler = ImageSampler::nearest();
 
+    let dynamic = image.clone().try_into_dynamic().unwrap();
+    let buf = dynamic.as_rgba8().unwrap();
+    let mut has_transparency = Vec::new();
+    'image: for idx in 0..texture_atlas_layout.len() {
+        let rect = texture_atlas_layout.textures[idx];
+        for x in rect.min.x as u32..rect.max.x as u32 {
+            for y in rect.min.y as u32..rect.max.y as u32 {
+                let pixel = buf.get_pixel(x, y);
+                if pixel.0[3] != u8::MAX {
+                    has_transparency.push(true);
+                    continue 'image;
+                }
+            }
+        }
+        has_transparency.push(false);
+    }
+
     TextureAtlas {
         image: texture,
         layout: texture_atlas_layout,
+        has_transparency,
         mapping,
     }
 }
@@ -141,7 +160,7 @@ fn get_tint_for_block(
     }
 }
 
-fn element_mesh(element: &Element, atlas: &TextureAtlas, textures: &Textures) -> Mesh {
+fn element_mesh(element: &Element, atlas: &TextureAtlas, textures: &Textures) -> (Mesh, bool) {
     let min = Vec3::from_array(element.from);
     let max = Vec3::from_array(element.to);
 
@@ -149,6 +168,8 @@ fn element_mesh(element: &Element, atlas: &TextureAtlas, textures: &Textures) ->
     let mut normals = Vec::new();
     let mut uvs = Vec::new();
     let mut indices = Vec::new();
+
+    let mut has_transparency = false;
 
     let mut common_face =
         |face: &ElementFace, face_positions: [([f32; 3], [f32; 2]); 4], normal: [f32; 3]| {
@@ -164,6 +185,9 @@ fn element_mesh(element: &Element, atlas: &TextureAtlas, textures: &Textures) ->
             let image_id = atlas.mapping[&texture_path];
             let idx_in_atlas = atlas.layout.get_texture_index(image_id).unwrap();
             let mut atlas_rect = atlas.layout.textures[idx_in_atlas];
+            if atlas.has_transparency[idx_in_atlas] {
+                has_transparency = true;
+            }
 
             // Convert texture pixel coordinates to normalized
             atlas_rect.min /= atlas.layout.size;
@@ -267,14 +291,17 @@ fn element_mesh(element: &Element, atlas: &TextureAtlas, textures: &Textures) ->
         );
     }
 
-    Mesh::new(
-        PrimitiveTopology::TriangleList,
-        RenderAssetUsages::default(),
+    (
+        Mesh::new(
+            PrimitiveTopology::TriangleList,
+            RenderAssetUsages::default(),
+        )
+        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
+        .with_inserted_indices(Indices::U32(indices)),
+        has_transparency,
     )
-    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
-    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
-    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
-    .with_inserted_indices(Indices::U32(indices))
 }
 
 fn rot_vert_with_orig(rot: Quat, orig: [f32; 3], vert: [f32; 3]) -> [f32; 3] {
@@ -287,7 +314,7 @@ fn create_mesh_for_block(
     block: &str,
     atlas: &TextureAtlas,
     block_models: &BlockModels,
-) -> (Mesh, Option<Color>) {
+) -> (Mesh, Option<Color>, bool) {
     let models = &block_models.0[block];
 
     let mut positions: Vec<[f32; 3]> = Vec::new();
@@ -295,15 +322,22 @@ fn create_mesh_for_block(
     let mut uvs = Vec::new();
     let mut indices = Vec::new();
 
+    let mut has_transparency = false;
+
     for model in &models.0 {
         for element in &model.elements {
+            let (mesh, element_has_transparency) = element_mesh(element, atlas, &model.textures);
+
+            if element_has_transparency {
+                has_transparency = true;
+            }
+
             let model_rot = Quat::from_euler(
                 EulerRot::XYZ,
                 (-model.model_rot.0 as f32).to_radians(),
                 (-model.model_rot.1 as f32).to_radians(),
                 0.0,
             );
-            let mesh = element_mesh(element, atlas, &model.textures);
             let rot_angle = element.rotation.angle.to_radians();
             let elem_rot = match element.rotation.axis {
                 Axis::X => Quat::from_rotation_x(rot_angle),
@@ -382,6 +416,7 @@ fn create_mesh_for_block(
         .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
         .with_inserted_indices(Indices::U32(indices)),
         models.1,
+        has_transparency,
     )
 }
 
@@ -403,18 +438,23 @@ fn setup(
 
     let mut mesh_map = HashMap::new();
     for block in block_world.blocks.blocks_in_palette() {
-        let (mesh, tint) = create_mesh_for_block(block, &atlas, &*block_models);
+        let (mesh, tint, has_transparency) = create_mesh_for_block(block, &atlas, &*block_models);
         let mesh = meshes.add(mesh);
-        mesh_map.insert(block.to_string(), (mesh, tint));
+        mesh_map.insert(block.to_string(), (mesh, tint, has_transparency));
     }
 
     let base_material = StandardMaterial {
         base_color_texture: Some(atlas.image),
-        alpha_mode: AlphaMode::Blend,
         unlit: true,
+        alpha_mode: AlphaMode::Blend,
         ..default()
     };
-    let material = materials.add(base_material.clone());
+
+    let transparent_material = materials.add(base_material.clone());
+    let opaque_material = materials.add(StandardMaterial {
+        alpha_mode: AlphaMode::Opaque,
+        ..base_material.clone()
+    });
     let mut tinted_materials = HashMap::new();
 
     let (sx, sy, sz) = block_world.blocks.size();
@@ -425,7 +465,7 @@ fn setup(
                 if block == "minecraft:air" {
                     continue;
                 }
-                let (mesh, tint) = mesh_map[block].clone();
+                let (mesh, tint, has_transparency) = mesh_map[block].clone();
                 let material = if let Some(tint) = tint {
                     tinted_materials
                         .entry(tint.as_rgba_u32())
@@ -437,7 +477,11 @@ fn setup(
                         })
                         .clone()
                 } else {
-                    material.clone()
+                    if has_transparency {
+                        transparent_material.clone()
+                    } else {
+                        opaque_material.clone()
+                    }
                 };
                 commands.spawn(PbrBundle {
                     mesh,
