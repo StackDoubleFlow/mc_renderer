@@ -16,7 +16,7 @@ use bevy::render::texture::ImageSampler;
 use bevy::render::RenderPlugin;
 use bevy::utils::hashbrown::HashSet;
 use bevy::utils::HashMap;
-use bevy::window::{CursorGrabMode, PrimaryWindow};
+use bevy::window::{CursorGrabMode, PresentMode, PrimaryWindow};
 use bevy_fly_camera::{FlyCamera, FlyCameraPlugin};
 use color_eyre::Result;
 use debug_menu::McDebugMenuPlugin;
@@ -620,14 +620,27 @@ fn main() -> Result<()> {
 
     App::new()
         .add_plugins((
-            DefaultPlugins.set(RenderPlugin {
-                render_creation: RenderCreation::Automatic(WgpuSettings {
-                    // WARN this is a native only feature. It will not work with webgl or webgpu
-                    features: WgpuFeatures::POLYGON_MODE_LINE,
+            DefaultPlugins
+                .set(RenderPlugin {
+                    render_creation: RenderCreation::Automatic(WgpuSettings {
+                        // WARN this is a native only feature. It will not work with webgl or webgpu
+                        features: WgpuFeatures::POLYGON_MODE_LINE,
+                        ..default()
+                    }),
+                    ..default()
+                })
+                .set(WindowPlugin {
+                    primary_window: Some(Window {
+                        title: "MC Renderer".into(),
+                        present_mode: if cli.no_vsync {
+                            PresentMode::AutoNoVsync
+                        } else {
+                            PresentMode::AutoVsync
+                        },
+                        ..default()
+                    }),
                     ..default()
                 }),
-                ..default()
-            }),
             // You need to add this plugin to enable wireframe rendering
             WireframePlugin,
         ))
