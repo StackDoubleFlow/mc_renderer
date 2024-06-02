@@ -27,6 +27,7 @@ use minecraft_assets::api::AssetPack;
 use minecraft_assets::schemas::blockstates::multipart::StateValue;
 use minecraft_assets::schemas::blockstates::ModelProperties;
 use minecraft_assets::schemas::models::{Axis, BlockFace, Element, ElementFace, Texture, Textures};
+use std::f32::consts::PI;
 use std::fs;
 
 #[derive(States, Debug, Clone, PartialEq, Eq, Hash, Default)]
@@ -457,6 +458,13 @@ fn setup(
     });
     let mut tinted_materials = HashMap::new();
 
+    let world_parent = commands
+        .spawn(SpatialBundle {
+            transform: Transform::from_rotation(Quat::from_rotation_y(PI)),
+            ..default()
+        })
+        .id();
+
     let (sx, sy, sz) = block_world.blocks.size();
     for x in 0..sx {
         for y in 0..sy {
@@ -483,16 +491,18 @@ fn setup(
                         opaque_material.clone()
                     }
                 };
-                commands.spawn(PbrBundle {
-                    mesh,
-                    material,
-                    transform: Transform {
-                        translation: Vec3::new(x as f32, y as f32, z as f32),
-                        rotation: Quat::IDENTITY,
-                        scale: Vec3::splat(1.0 / 16.0),
-                    },
-                    ..default()
-                });
+                commands
+                    .spawn(PbrBundle {
+                        mesh,
+                        material,
+                        transform: Transform {
+                            translation: Vec3::new(x as f32, y as f32, z as f32),
+                            rotation: Quat::IDENTITY,
+                            scale: Vec3::splat(1.0 / 16.0),
+                        },
+                        ..default()
+                    })
+                    .set_parent(world_parent);
             }
         }
     }
