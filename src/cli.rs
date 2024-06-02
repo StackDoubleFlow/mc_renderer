@@ -10,6 +10,8 @@ pub struct Cli {
     pub schem_file: PathBuf,
     #[arg(long)]
     pub no_vsync: bool,
+    #[arg(long)]
+    pub wireframe: bool,
 }
 
 pub fn parse() -> Cli {
