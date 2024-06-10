@@ -315,18 +315,20 @@ fn create_mesh_for_block(
     block: &str,
     atlas: &TextureAtlas,
     block_models: &BlockModels,
-) -> (Mesh, Option<Color>, bool) {
+) -> (Vec<Mesh>, Option<Color>, bool) {
     let models = &block_models.0[block];
 
-    let mut positions: Vec<[f32; 3]> = Vec::new();
-    let mut normals: Vec<[f32; 3]> = Vec::new();
-    let mut uvs = Vec::new();
-    let mut indices = Vec::new();
+    let mut meshes = Vec::new();
 
     let mut has_transparency = false;
 
     for model in &models.0 {
         for element in &model.elements {
+            let mut positions: Vec<[f32; 3]> = Vec::new();
+            let mut normals: Vec<[f32; 3]> = Vec::new();
+            let mut uvs = Vec::new();
+            let mut indices = Vec::new();
+
             let (mesh, element_has_transparency) = element_mesh(element, atlas, &model.textures);
 
             if element_has_transparency {
@@ -404,21 +406,21 @@ fn create_mesh_for_block(
                 let p = rot_vert_with_orig(model_rot, [8.0, 8.0, 8.0], p);
                 positions.push(p);
             }
+
+            meshes.push(
+                Mesh::new(
+                    PrimitiveTopology::TriangleList,
+                    RenderAssetUsages::default(),
+                )
+                .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
+                .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
+                .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
+                .with_inserted_indices(Indices::U32(indices)),
+            )
         }
     }
 
-    (
-        Mesh::new(
-            PrimitiveTopology::TriangleList,
-            RenderAssetUsages::default(),
-        )
-        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
-        .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
-        .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
-        .with_inserted_indices(Indices::U32(indices)),
-        models.1,
-        has_transparency,
-    )
+    (meshes, models.1, has_transparency)
 }
 
 fn setup(
@@ -439,9 +441,13 @@ fn setup(
 
     let mut mesh_map = HashMap::new();
     for block in block_world.blocks.blocks_in_palette() {
-        let (mesh, tint, has_transparency) = create_mesh_for_block(block, &atlas, &*block_models);
-        let mesh = meshes.add(mesh);
-        mesh_map.insert(block.to_string(), (mesh, tint, has_transparency));
+        let (block_meshes, tint, has_transparency) =
+            create_mesh_for_block(block, &atlas, &*block_models);
+        let block_meshes: Vec<Handle<Mesh>> = block_meshes
+            .into_iter()
+            .map(|mesh| meshes.add(mesh))
+            .collect();
+        mesh_map.insert(block.to_string(), (block_meshes, tint, has_transparency));
     }
 
     let base_material = StandardMaterial {
@@ -473,7 +479,7 @@ fn setup(
                 if block == "minecraft:air" {
                     continue;
                 }
-                let (mesh, tint, has_transparency) = mesh_map[block].clone();
+                let (meshes, tint, has_transparency) = mesh_map[block].clone();
                 let material = if let Some(tint) = tint {
                     tinted_materials
                         .entry(tint.as_rgba_u32())
@@ -491,10 +497,8 @@ fn setup(
                         opaque_material.clone()
                     }
                 };
-                commands
-                    .spawn(PbrBundle {
-                        mesh,
-                        material,
+                let block_entity = commands
+                    .spawn(SpatialBundle {
                         transform: Transform {
                             translation: Vec3::new(x as f32, y as f32, z as f32),
                             rotation: Quat::IDENTITY,
@@ -502,7 +506,17 @@ fn setup(
                         },
                         ..default()
                     })
-                    .set_parent(world_parent);
+                    .set_parent(world_parent)
+                    .id();
+                for mesh in meshes {
+                    commands
+                        .spawn(PbrBundle {
+                            mesh,
+                            material: material.clone(),
+                            ..default()
+                        })
+                        .set_parent(block_entity);
+                }
             }
         }
     }
