@@ -311,16 +311,19 @@ fn rot_vert_with_orig(rot: Quat, orig: [f32; 3], vert: [f32; 3]) -> [f32; 3] {
     (Transform::from_rotation(rot).transform_point(v) + orig).to_array()
 }
 
+struct ElementMesh {
+    mesh: Mesh,
+    has_transparency: bool,
+}
+
 fn create_mesh_for_block(
     block: &str,
     atlas: &TextureAtlas,
     block_models: &BlockModels,
-) -> (Vec<Mesh>, Option<Color>, bool) {
+) -> (Vec<ElementMesh>, Option<Color>) {
     let models = &block_models.0[block];
 
     let mut meshes = Vec::new();
-
-    let mut has_transparency = false;
 
     for model in &models.0 {
         for element in &model.elements {
@@ -329,11 +332,7 @@ fn create_mesh_for_block(
             let mut uvs = Vec::new();
             let mut indices = Vec::new();
 
-            let (mesh, element_has_transparency) = element_mesh(element, atlas, &model.textures);
-
-            if element_has_transparency {
-                has_transparency = true;
-            }
+            let (mesh, has_transparency) = element_mesh(element, atlas, &model.textures);
 
             let model_rot = Quat::from_euler(
                 EulerRot::XYZ,
@@ -407,8 +406,8 @@ fn create_mesh_for_block(
                 positions.push(p);
             }
 
-            meshes.push(
-                Mesh::new(
+            meshes.push(ElementMesh {
+                mesh: Mesh::new(
                     PrimitiveTopology::TriangleList,
                     RenderAssetUsages::default(),
                 )
@@ -416,11 +415,12 @@ fn create_mesh_for_block(
                 .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
                 .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
                 .with_inserted_indices(Indices::U32(indices)),
-            )
+                has_transparency,
+            })
         }
     }
 
-    (meshes, models.1, has_transparency)
+    (meshes, models.1)
 }
 
 fn setup(
@@ -441,13 +441,12 @@ fn setup(
 
     let mut mesh_map = HashMap::new();
     for block in block_world.blocks.blocks_in_palette() {
-        let (block_meshes, tint, has_transparency) =
-            create_mesh_for_block(block, &atlas, &*block_models);
-        let block_meshes: Vec<Handle<Mesh>> = block_meshes
+        let (block_meshes, tint) = create_mesh_for_block(block, &atlas, &*block_models);
+        let block_meshes: Vec<(Handle<Mesh>, bool)> = block_meshes
             .into_iter()
-            .map(|mesh| meshes.add(mesh))
+            .map(|mesh| (meshes.add(mesh.mesh), mesh.has_transparency))
             .collect();
-        mesh_map.insert(block.to_string(), (block_meshes, tint, has_transparency));
+        mesh_map.insert(block.to_string(), (block_meshes, tint));
     }
 
     let base_material = StandardMaterial {
@@ -479,24 +478,7 @@ fn setup(
                 if block == "minecraft:air" {
                     continue;
                 }
-                let (meshes, tint, has_transparency) = mesh_map[block].clone();
-                let material = if let Some(tint) = tint {
-                    tinted_materials
-                        .entry(tint.as_rgba_u32())
-                        .or_insert_with(|| {
-                            materials.add(StandardMaterial {
-                                base_color: tint,
-                                ..base_material.clone()
-                            })
-                        })
-                        .clone()
-                } else {
-                    if has_transparency {
-                        transparent_material.clone()
-                    } else {
-                        opaque_material.clone()
-                    }
-                };
+                let (meshes, tint) = mesh_map[block].clone();
                 let block_entity = commands
                     .spawn(SpatialBundle {
                         transform: Transform {
@@ -508,7 +490,24 @@ fn setup(
                     })
                     .set_parent(world_parent)
                     .id();
-                for mesh in meshes {
+                for (mesh, has_transparency) in meshes {
+                    let material = if let Some(tint) = tint {
+                        tinted_materials
+                            .entry(tint.as_rgba_u32())
+                            .or_insert_with(|| {
+                                materials.add(StandardMaterial {
+                                    base_color: tint,
+                                    ..base_material.clone()
+                                })
+                            })
+                            .clone()
+                    } else {
+                        if has_transparency {
+                            transparent_material.clone()
+                        } else {
+                            opaque_material.clone()
+                        }
+                    };
                     commands
                         .spawn(PbrBundle {
                             mesh,
