@@ -161,7 +161,11 @@ fn get_tint_for_block(
     }
 }
 
-fn element_mesh(element: &Element, atlas: &TextureAtlas, textures: &Textures) -> (Mesh, bool) {
+fn element_mesh(
+    element: &Element,
+    atlas: &TextureAtlas,
+    textures: &Textures,
+) -> (Mesh, bool, Vec3) {
     let min = Vec3::from_array(element.from);
     let max = Vec3::from_array(element.to);
 
@@ -292,6 +296,8 @@ fn element_mesh(element: &Element, atlas: &TextureAtlas, textures: &Textures) ->
         );
     }
 
+    let offset = min + (max - min) / 2.0;
+
     (
         Mesh::new(
             PrimitiveTopology::TriangleList,
@@ -302,6 +308,7 @@ fn element_mesh(element: &Element, atlas: &TextureAtlas, textures: &Textures) ->
         .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
         .with_inserted_indices(Indices::U32(indices)),
         has_transparency,
+        offset,
     )
 }
 
@@ -314,6 +321,7 @@ fn rot_vert_with_orig(rot: Quat, orig: [f32; 3], vert: [f32; 3]) -> [f32; 3] {
 struct ElementMesh {
     mesh: Mesh,
     has_transparency: bool,
+    offset: Vec3,
 }
 
 fn create_mesh_for_block(
@@ -332,7 +340,7 @@ fn create_mesh_for_block(
             let mut uvs = Vec::new();
             let mut indices = Vec::new();
 
-            let (mesh, has_transparency) = element_mesh(element, atlas, &model.textures);
+            let (mesh, has_transparency, offset) = element_mesh(element, atlas, &model.textures);
 
             let model_rot = Quat::from_euler(
                 EulerRot::XYZ,
@@ -403,6 +411,7 @@ fn create_mesh_for_block(
             for &p in vert_positions {
                 let p = rot_vert_with_orig(elem_rot, element.rotation.origin, p);
                 let p = rot_vert_with_orig(model_rot, [8.0, 8.0, 8.0], p);
+                let p = (Vec3::from_array(p) - offset).to_array();
                 positions.push(p);
             }
 
@@ -416,6 +425,7 @@ fn create_mesh_for_block(
                 .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
                 .with_inserted_indices(Indices::U32(indices)),
                 has_transparency,
+                offset,
             })
         }
     }
@@ -442,9 +452,9 @@ fn setup(
     let mut mesh_map = HashMap::new();
     for block in block_world.blocks.blocks_in_palette() {
         let (block_meshes, tint) = create_mesh_for_block(block, &atlas, &*block_models);
-        let block_meshes: Vec<(Handle<Mesh>, bool)> = block_meshes
+        let block_meshes: Vec<(Handle<Mesh>, bool, Vec3)> = block_meshes
             .into_iter()
-            .map(|mesh| (meshes.add(mesh.mesh), mesh.has_transparency))
+            .map(|mesh| (meshes.add(mesh.mesh), mesh.has_transparency, mesh.offset))
             .collect();
         mesh_map.insert(block.to_string(), (block_meshes, tint));
     }
@@ -490,7 +500,7 @@ fn setup(
                     })
                     .set_parent(world_parent)
                     .id();
-                for (mesh, has_transparency) in meshes {
+                for (mesh, has_transparency, offset) in meshes {
                     let material = if let Some(tint) = tint {
                         tinted_materials
                             .entry(tint.as_rgba_u32())
@@ -512,6 +522,10 @@ fn setup(
                         .spawn(PbrBundle {
                             mesh,
                             material: material.clone(),
+                            transform: Transform {
+                                translation: offset,
+                                ..default()
+                            },
                             ..default()
                         })
                         .set_parent(block_entity);
