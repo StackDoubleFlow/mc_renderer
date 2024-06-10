@@ -489,17 +489,23 @@ fn setup(
                     continue;
                 }
                 let (meshes, tint) = mesh_map[block].clone();
-                let block_entity = commands
-                    .spawn(SpatialBundle {
-                        transform: Transform {
-                            translation: Vec3::new(x as f32, y as f32, z as f32),
-                            rotation: Quat::IDENTITY,
-                            scale: Vec3::splat(1.0 / 16.0),
-                        },
-                        ..default()
-                    })
-                    .set_parent(world_parent)
-                    .id();
+                let block_transform = Transform {
+                    translation: Vec3::new(x as f32, y as f32, z as f32),
+                    rotation: Quat::IDENTITY,
+                    scale: Vec3::splat(1.0 / 16.0),
+                };
+                let single_element = meshes.len() == 1;
+                let parent_entity = if single_element {
+                    world_parent
+                } else {
+                    commands
+                        .spawn(SpatialBundle {
+                            transform: block_transform,
+                            ..default()
+                        })
+                        .set_parent(world_parent)
+                        .id()
+                };
                 for (mesh, has_transparency, offset) in meshes {
                     let material = if let Some(tint) = tint {
                         tinted_materials
@@ -518,17 +524,19 @@ fn setup(
                             opaque_material.clone()
                         }
                     };
+                    let elem_transform = Transform::from_translation(offset);
                     commands
                         .spawn(PbrBundle {
                             mesh,
                             material: material.clone(),
-                            transform: Transform {
-                                translation: offset,
-                                ..default()
+                            transform: if single_element {
+                                block_transform * elem_transform
+                            } else {
+                                elem_transform
                             },
                             ..default()
                         })
-                        .set_parent(block_entity);
+                        .set_parent(parent_entity);
                 }
             }
         }
