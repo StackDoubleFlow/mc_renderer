@@ -3,11 +3,12 @@ mod debug_menu;
 mod mesh;
 mod resources;
 
-use bevy::asset::LoadedFolder;
+use bevy::core_pipeline::experimental::taa::TemporalAntiAliasBundle;
 use bevy::diagnostic::{
     EntityCountDiagnosticsPlugin, FrameTimeDiagnosticsPlugin, SystemInformationDiagnosticsPlugin,
 };
 use bevy::pbr::wireframe::{WireframeConfig, WireframePlugin};
+use bevy::pbr::ScreenSpaceAmbientOcclusionBundle;
 use bevy::prelude::*;
 use bevy::render::settings::{RenderCreation, WgpuFeatures, WgpuSettings};
 use bevy::render::RenderPlugin;
@@ -46,7 +47,9 @@ impl BlockMaterials {
     fn new(materials: &mut Assets<StandardMaterial>, atlas: &TextureAtlas) -> Self {
         let base = StandardMaterial {
             base_color_texture: Some(atlas.image.clone()),
-            unlit: true,
+            perceptual_roughness: 1.0,
+            reflectance: 0.0,
+            fog_enabled: false,
             alpha_mode: AlphaMode::Blend,
             ..default()
         };
@@ -81,6 +84,7 @@ impl BlockMaterials {
 
 fn setup_ambient_light(mut ambient_light: ResMut<AmbientLight>) {
     ambient_light.color = Color::WHITE;
+    ambient_light.brightness = 1000.0;
 }
 
 fn setup(
@@ -169,6 +173,8 @@ fn setup_camera(mut commands: Commands) {
     commands.insert_resource(ClearColor(Color::BLUE));
     commands
         .spawn(Camera3dBundle::default())
+        .insert(ScreenSpaceAmbientOcclusionBundle::default())
+        .insert(TemporalAntiAliasBundle::default())
         .insert(McCamera)
         .insert(FlyCamera {
             enabled: false,
@@ -214,7 +220,6 @@ fn main() -> Result<()> {
     let models = mesh::get_block_models_for(&asset_pack, &schematic)?;
 
     App::new()
-        .insert_resource(Msaa::Off)
         .add_plugins((
             DefaultPlugins
                 .set(RenderPlugin {
@@ -250,6 +255,7 @@ fn main() -> Result<()> {
             // wireframes. Can be changed per mesh using the `WireframeColor` component.
             default_color: Color::WHITE,
         })
+        .insert_resource(Msaa::Off)
         .add_plugins((McDebugMenuPlugin, FlyCameraPlugin))
         // Perf UI
         .add_plugins((
@@ -267,7 +273,10 @@ fn main() -> Result<()> {
             entities: HashMap::new(),
         })
         .insert_resource(models)
-        .add_systems(OnEnter(AppLoadState::Finished), (setup_ambient_light, setup))
+        .add_systems(
+            OnEnter(AppLoadState::Finished),
+            (setup_ambient_light, setup),
+        )
         .add_systems(Startup, setup_camera)
         .add_systems(Update, mouse_grab)
         .run();
