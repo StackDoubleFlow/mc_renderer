@@ -229,8 +229,9 @@ fn rot_vert_with_orig(rot: Quat, orig: [f32; 3], vert: [f32; 3]) -> [f32; 3] {
     (Transform::from_rotation(rot).transform_point(v) + orig).to_array()
 }
 
+#[derive(Clone)]
 pub struct ElementMesh {
-    pub mesh: Mesh,
+    pub mesh: Handle<Mesh>,
     pub has_transparency: bool,
     pub offset: Vec3,
 }
@@ -239,6 +240,7 @@ pub fn create_mesh_for_block(
     block: &str,
     atlas: &TextureAtlas,
     block_models: &BlockModels,
+    mesh_assets: &mut Assets<Mesh>,
 ) -> (Vec<ElementMesh>, Option<Color>) {
     let models = &block_models.0[block];
 
@@ -326,15 +328,17 @@ pub fn create_mesh_for_block(
                 positions.push(p);
             }
 
-            meshes.push(ElementMesh {
-                mesh: Mesh::new(
+            let mesh = Mesh::new(
                     PrimitiveTopology::TriangleList,
                     RenderAssetUsages::default(),
                 )
                 .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
                 .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
                 .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
-                .with_inserted_indices(Indices::U32(indices)),
+                .with_inserted_indices(Indices::U32(indices));
+
+            meshes.push(ElementMesh {
+                mesh: mesh_assets.add(mesh),
                 has_transparency,
                 offset,
             })

@@ -24,8 +24,8 @@ use resources::McAssetLoaderPlugin;
 use std::f32::consts::PI;
 use std::fs;
 
-use resources::textures::TextureAtlas;
 use mesh::create_mesh_for_block;
+use resources::textures::TextureAtlas;
 
 #[derive(States, Debug, Clone, PartialEq, Eq, Hash, Default)]
 enum AppLoadState {
@@ -34,39 +34,69 @@ enum AppLoadState {
     Finished,
 }
 
+struct BlockMaterials {
+    base: StandardMaterial,
+    opaque: Handle<StandardMaterial>,
+    transparent: Handle<StandardMaterial>,
+    /// mapping from tint color to material
+    tints: HashMap<u32, Handle<StandardMaterial>>,
+}
+
+impl BlockMaterials {
+    fn new(materials: &mut Assets<StandardMaterial>, atlas: &TextureAtlas) -> Self {
+        let base = StandardMaterial {
+            base_color_texture: Some(atlas.image.clone()),
+            unlit: true,
+            alpha_mode: AlphaMode::Blend,
+            ..default()
+        };
+
+        Self {
+            opaque: materials.add(StandardMaterial {
+                alpha_mode: AlphaMode::Mask(0.5),
+                ..base.clone()
+            }),
+            transparent: materials.add(base.clone()),
+            tints: Default::default(),
+            base,
+        }
+    }
+
+    fn get_or_add_tint(
+        &mut self,
+        tint: Color,
+        materials: &mut Assets<StandardMaterial>,
+    ) -> Handle<StandardMaterial> {
+        self.tints
+            .entry(tint.as_rgba_u32())
+            .or_insert_with(|| {
+                materials.add(StandardMaterial {
+                    base_color: tint,
+                    ..self.base.clone()
+                })
+            })
+            .clone()
+    }
+}
+
+fn setup_ambient_light(mut ambient_light: ResMut<AmbientLight>) {
+    ambient_light.color = Color::WHITE;
+}
+
 fn setup(
     mut commands: Commands,
     block_models: Res<BlockModels>,
     block_world: Res<BlockWorld>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut ambient_light: ResMut<AmbientLight>,
-    atlas: Res<TextureAtlas>
+    atlas: Res<TextureAtlas>,
 ) {
-    ambient_light.color = Color::WHITE;
     let mut mesh_map = HashMap::new();
     for block in block_world.blocks.blocks_in_palette() {
-        let (block_meshes, tint) = create_mesh_for_block(block, &atlas, &*block_models);
-        let block_meshes: Vec<(Handle<Mesh>, bool, Vec3)> = block_meshes
-            .into_iter()
-            .map(|mesh| (meshes.add(mesh.mesh), mesh.has_transparency, mesh.offset))
-            .collect();
+        let (block_meshes, tint) =
+            create_mesh_for_block(block, &atlas, &*block_models, &mut meshes);
         mesh_map.insert(block.to_string(), (block_meshes, tint));
     }
-
-    let base_material = StandardMaterial {
-        base_color_texture: Some(atlas.image.clone()),
-        unlit: true,
-        alpha_mode: AlphaMode::Blend,
-        ..default()
-    };
-
-    let transparent_material = materials.add(base_material.clone());
-    let opaque_material = materials.add(StandardMaterial {
-        alpha_mode: AlphaMode::Mask(0.5),
-        ..base_material.clone()
-    });
-    let mut tinted_materials = HashMap::new();
 
     let world_parent = commands
         .spawn(SpatialBundle {
@@ -74,6 +104,8 @@ fn setup(
             ..default()
         })
         .id();
+
+    let mut block_mats = BlockMaterials::new(&mut materials, &atlas);
 
     let (sx, sy, sz) = block_world.blocks.size();
     for x in 0..sx {
@@ -101,28 +133,20 @@ fn setup(
                         .set_parent(world_parent)
                         .id()
                 };
-                for (mesh, has_transparency, offset) in meshes {
+                for elem in meshes {
                     let material = if let Some(tint) = tint {
-                        tinted_materials
-                            .entry(tint.as_rgba_u32())
-                            .or_insert_with(|| {
-                                materials.add(StandardMaterial {
-                                    base_color: tint,
-                                    ..base_material.clone()
-                                })
-                            })
-                            .clone()
+                        block_mats.get_or_add_tint(tint, &mut materials)
                     } else {
-                        if has_transparency {
-                            transparent_material.clone()
+                        if elem.has_transparency {
+                            block_mats.transparent.clone()
                         } else {
-                            opaque_material.clone()
+                            block_mats.opaque.clone()
                         }
                     };
-                    let elem_transform = Transform::from_translation(offset);
+                    let elem_transform = Transform::from_translation(elem.offset);
                     commands
                         .spawn(PbrBundle {
-                            mesh,
+                            mesh: elem.mesh,
                             material: material.clone(),
                             transform: if single_element {
                                 block_transform * elem_transform
@@ -243,7 +267,7 @@ fn main() -> Result<()> {
             entities: HashMap::new(),
         })
         .insert_resource(models)
-        .add_systems(OnEnter(AppLoadState::Finished), setup)
+        .add_systems(OnEnter(AppLoadState::Finished), (setup_ambient_light, setup))
         .add_systems(Startup, setup_camera)
         .add_systems(Update, mouse_grab)
         .run();
