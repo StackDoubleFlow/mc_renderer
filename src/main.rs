@@ -82,9 +82,24 @@ impl BlockMaterials {
     }
 }
 
-fn setup_ambient_light(mut ambient_light: ResMut<AmbientLight>) {
-    ambient_light.color = Color::WHITE;
+fn setup_lights(mut commands: Commands, mut ambient_light: ResMut<AmbientLight>) {
     ambient_light.brightness = 1000.0;
+    commands.spawn(DirectionalLightBundle {
+        transform: Transform::from_xyz(0.0, 20.0, 20.0).looking_at(Vec3::ZERO, Vec3::Y),
+        directional_light: DirectionalLight {
+            illuminance: 1000.0,
+            ..default()
+        },
+        ..default()
+    });
+    commands.spawn(DirectionalLightBundle {
+        transform: Transform::from_xyz(0.0, 20.0, -20.0).looking_at(Vec3::ZERO, Vec3::Y),
+        directional_light: DirectionalLight {
+            illuminance: 1000.0,
+            ..default()
+        },
+        ..default()
+    });
 }
 
 fn setup(
@@ -273,10 +288,7 @@ fn main() -> Result<()> {
             entities: HashMap::new(),
         })
         .insert_resource(models)
-        .add_systems(
-            OnEnter(AppLoadState::Finished),
-            (setup_ambient_light, setup),
-        )
+        .add_systems(OnEnter(AppLoadState::Finished), (setup_lights, setup))
         .add_systems(Startup, setup_camera)
         .add_systems(Update, mouse_grab)
         .run();
