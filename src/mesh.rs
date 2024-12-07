@@ -244,16 +244,21 @@ pub fn create_mesh_for_block(
 ) -> (Vec<ElementMesh>, Option<Color>) {
     let models = &block_models.0[block];
 
-    let mut meshes = Vec::new();
+    let mut positions: Vec<[f32; 3]> = Vec::new();
+    let mut normals: Vec<[f32; 3]> = Vec::new();
+    let mut uvs = Vec::new();
+    let mut indices = Vec::new();
+
+    let mut has_transparency = false;
 
     for model in &models.0 {
         for element in &model.elements {
-            let mut positions: Vec<[f32; 3]> = Vec::new();
-            let mut normals: Vec<[f32; 3]> = Vec::new();
-            let mut uvs = Vec::new();
-            let mut indices = Vec::new();
+            let (mesh, elem_has_transparency, offset) =
+                element_mesh(element, atlas, &model.textures);
 
-            let (mesh, has_transparency, offset) = element_mesh(element, atlas, &model.textures);
+            if elem_has_transparency {
+                has_transparency = true;
+            }
 
             let model_rot = Quat::from_euler(
                 EulerRot::XYZ,
@@ -324,27 +329,25 @@ pub fn create_mesh_for_block(
             for &p in vert_positions {
                 let p = rot_vert_with_orig(elem_rot, element.rotation.origin, p);
                 let p = rot_vert_with_orig(model_rot, [8.0, 8.0, 8.0], p);
-                let p = (Vec3::from_array(p) - offset).to_array();
+                let p = (Vec3::from_array(p)).to_array();
                 positions.push(p);
             }
-
-            let mesh = Mesh::new(
-                    PrimitiveTopology::TriangleList,
-                    RenderAssetUsages::default(),
-                )
-                .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
-                .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
-                .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
-                .with_inserted_indices(Indices::U32(indices));
-
-            meshes.push(ElementMesh {
-                mesh: mesh_assets.add(mesh),
-                has_transparency,
-                offset,
-            })
         }
     }
 
+    let mesh = Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::default(),
+    )
+    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
+    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
+    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
+    .with_inserted_indices(Indices::U32(indices));
+    let meshes = vec![ElementMesh {
+        mesh: mesh_assets.add(mesh),
+        has_transparency,
+        offset: Vec3::ZERO,
+    }];
     (meshes, models.1)
 }
 
