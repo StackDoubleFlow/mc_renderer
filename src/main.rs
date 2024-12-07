@@ -117,7 +117,7 @@ fn create_texture_atlas(
         for x in rect.min.x as u32..rect.max.x as u32 {
             for y in rect.min.y as u32..rect.max.y as u32 {
                 let pixel = buf.get_pixel(x, y);
-                if pixel.0[3] != u8::MAX {
+                if pixel.0[3] != u8::MAX && pixel.0[3] != 0 {
                     has_transparency.push(true);
                     continue 'image;
                 }
@@ -468,7 +468,7 @@ fn setup(
 
     let transparent_material = materials.add(base_material.clone());
     let opaque_material = materials.add(StandardMaterial {
-        alpha_mode: AlphaMode::Opaque,
+        alpha_mode: AlphaMode::Mask(0.5),
         ..base_material.clone()
     });
     let mut tinted_materials = HashMap::new();
@@ -708,6 +708,7 @@ fn main() -> Result<()> {
     }
 
     App::new()
+        .insert_resource(Msaa::Off)
         .add_plugins((
             DefaultPlugins
                 .set(RenderPlugin {
