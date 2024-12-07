@@ -14,6 +14,7 @@ use bevy::render::settings::{RenderCreation, WgpuFeatures, WgpuSettings};
 use bevy::render::RenderPlugin;
 use bevy::utils::HashMap;
 use bevy::window::{CursorGrabMode, PresentMode, PrimaryWindow};
+use bevy_atmosphere::prelude::*;
 use bevy_fly_camera::{FlyCamera, FlyCameraPlugin};
 use color_eyre::Result;
 use debug_menu::McDebugMenuPlugin;
@@ -185,16 +186,20 @@ fn setup(
 struct McCamera;
 
 fn setup_camera(mut commands: Commands) {
-    commands.insert_resource(ClearColor(Color::BLUE));
     commands
         .spawn(Camera3dBundle::default())
         .insert(ScreenSpaceAmbientOcclusionBundle::default())
         .insert(TemporalAntiAliasBundle::default())
         .insert(McCamera)
+        .insert(AtmosphereCamera::default())
         .insert(FlyCamera {
             enabled: false,
             ..default()
         });
+    commands.insert_resource(AtmosphereModel::new(Nishita {
+        sun_position: Vec3::new(1.0, 1.0, 0.0),
+        ..default()
+    }));
     commands.spawn(PerfUiCompleteBundle::default());
 }
 
@@ -278,6 +283,7 @@ fn main() -> Result<()> {
             FrameTimeDiagnosticsPlugin,
             EntityCountDiagnosticsPlugin,
             SystemInformationDiagnosticsPlugin,
+            AtmospherePlugin,
             McAssetLoaderPlugin,
         ))
         .init_state::<AppLoadState>()
@@ -288,8 +294,8 @@ fn main() -> Result<()> {
             entities: HashMap::new(),
         })
         .insert_resource(models)
-        .add_systems(OnEnter(AppLoadState::Finished), (setup_lights, setup))
-        .add_systems(Startup, setup_camera)
+        .add_systems(OnEnter(AppLoadState::Finished), setup)
+        .add_systems(Startup, (setup_camera, setup_lights))
         .add_systems(Update, mouse_grab)
         .run();
 
