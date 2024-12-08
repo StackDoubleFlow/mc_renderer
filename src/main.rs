@@ -19,7 +19,7 @@ use bevy_fly_camera::{FlyCamera, FlyCameraPlugin};
 use block::{BlockBundle, BlockPalette, BlockPlugin};
 use color_eyre::Result;
 use debug_menu::McDebugMenuPlugin;
-use iyes_perf_ui::{PerfUiCompleteBundle, PerfUiPlugin};
+use iyes_perf_ui::prelude::*;
 use mc_schems::{Blocks, Schematic};
 use resources::mc_meta::{McMetaAsset, McMetaAssetLoader};
 use resources::McAssetLoaderPlugin;

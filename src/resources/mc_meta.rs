@@ -1,8 +1,7 @@
 use bevy::asset::io::Reader;
-use bevy::asset::{Asset, AssetLoader, AssetPath, AsyncReadExt, Handle, LoadContext};
-use bevy::reflect::TypePath;
-use bevy::render::texture::Image;
-use bevy::utils::BoxedFuture;
+use bevy::asset::{AssetLoader, AssetPath, AsyncReadExt, LoadContext};
+use bevy::prelude::*;
+use bevy::utils::ConditionalSendFuture;
 use serde::Deserialize;
 use thiserror::Error;
 
@@ -66,9 +65,9 @@ impl AssetLoader for McMetaAssetLoader {
     fn load<'a>(
         &'a self,
         reader: &'a mut Reader,
-        _settings: &'a (),
+        _settings: &'a Self::Settings,
         load_context: &'a mut LoadContext,
-    ) -> BoxedFuture<'a, Result<Self::Asset, Self::Error>> {
+    ) -> impl ConditionalSendFuture<Output = Result<Self::Asset, Self::Error>> {
         Box::pin(async move {
             let mut bytes = Vec::new();
             reader.read_to_end(&mut bytes).await?;

@@ -59,11 +59,11 @@ impl TextureAtlas {
         let texture_path = format!("minecraft/textures/block/{}.png", texture_name);
         let image_id = self.mapping[&texture_path];
         let idx_in_atlas = self.layout.get_texture_index(image_id).unwrap();
-        let mut atlas_rect = self.layout.textures[idx_in_atlas];
+        let mut atlas_rect = self.layout.textures[idx_in_atlas].as_rect();
 
         // Convert texture pixel coordinates to normalized
-        atlas_rect.min /= self.layout.size;
-        atlas_rect.max /= self.layout.size;
+        atlas_rect.min /= self.layout.size.as_vec2();
+        atlas_rect.max /= self.layout.size.as_vec2();
 
         TextureDetails {
             rect: atlas_rect,
@@ -117,7 +117,7 @@ fn create_texture_atlas(
         texture_atlas_builder.add_texture(Some(id), texture);
     }
 
-    let (texture_atlas_layout, texture) = texture_atlas_builder.finish().unwrap();
+    let (texture_atlas_layout, texture) = texture_atlas_builder.build().unwrap();
     let texture = textures.add(texture);
 
     // Update the sampling settings of the texture atlas

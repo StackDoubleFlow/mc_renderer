@@ -75,7 +75,7 @@ fn get_tint_for_block(
         let r = f * 0.6 + if f > 0.0 { 0.4 } else { 0.3 };
         let g = (f * f * 0.7 - 0.5).clamp(0.0, 1.0);
         let b = (f * f * 0.6 - 0.7).clamp(0.0, 1.0);
-        Color::rgb(r, g, b)
+        Color::srgb(r, g, b)
     } else {
         warn!(
             "Unknown tint with block {} and idx {}",
@@ -434,8 +434,9 @@ impl BlockMaterials {
         tint: Color,
         materials: &mut Assets<StandardMaterial>,
     ) -> Handle<StandardMaterial> {
+        let linear_rgba: LinearRgba = tint.into();
         self.tints
-            .entry(tint.as_rgba_u32())
+            .entry(linear_rgba.as_u32())
             .or_insert_with(|| {
                 materials.add(StandardMaterial {
                     base_color: tint,

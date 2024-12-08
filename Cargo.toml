@@ -6,23 +6,23 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-clap = { version = "4.4.8", features = ["derive"] }
-color-eyre = "0.6.2"
-serde = { version = "1.0.192", features = ["derive"] }
-serde_json = "1.0.108"
-tracing = "0.1.40"
-zip = "0.6.6"
+clap = { version = "4.5", features = ["derive"] }
+color-eyre = "0.6"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tracing = "0.1"
+zip = "2.2"
 # This fork supports more asset types
 minecraft-assets = { git = "https://github.com/wgpu-mc/minecraft-assets.git" }
-bevy = { version = "0.13", features = ["wayland"] }
-bevy_egui = "0.27.0"
-bevy_atmosphere = "0.9"
-# This fork is updated to bevy 0.13
+bevy = { version = "0.14", features = ["wayland"] }
+bevy_egui = "0.30"
+bevy_atmosphere = "0.10"
+# This fork is updated to bevy 0.14
 bevy_fly_camera = { git = "https://github.com/Cyannide/bevy_fly_camera.git" }
-thiserror = "1.0.58"
+thiserror = "2.0"
 # Not yet published to crates.io
 mc_schems = { git = "https://github.com/StackDoubleFlow/mc_schems.git" }
-iyes_perf_ui = "0.2"
+iyes_perf_ui = "0.3"
 
 # Enable a small amount of optimization in debug mode
 [profile.dev]
