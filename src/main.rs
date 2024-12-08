@@ -131,9 +131,8 @@ fn mouse_grab(
 #[derive(Resource)]
 struct BlockWorld {
     blocks: Blocks,
-    entities: HashMap<(u32, u32, u32), Entity>,
+    entities: HashMap<UVec3, Entity>,
 }
-
 fn main() -> Result<()> {
     color_eyre::install()?;
 

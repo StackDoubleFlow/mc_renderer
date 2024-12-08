@@ -252,12 +252,8 @@ pub fn create_mesh_for_block(
                 has_transparency = true;
             }
 
-            let model_rot = Quat::from_euler(
-                EulerRot::XYZ,
-                (-model.model_rot.0 as f32).to_radians(),
-                (-model.model_rot.1 as f32).to_radians(),
-                0.0,
-            );
+            let model_rot = Quat::from_rotation_y((-model.model_rot.1 as f32).to_radians())
+                * Quat::from_rotation_x((-model.model_rot.0 as f32).to_radians());
             let rot_angle = element.rotation.angle.to_radians();
             let elem_rot = match element.rotation.axis {
                 Axis::X => Quat::from_rotation_x(rot_angle),
