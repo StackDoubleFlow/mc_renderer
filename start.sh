@@ -1,1 +1,1 @@
-RUST_BACKTRACE=1 cargo run -- --schem-file /home/stack/ledump/MCHPRS/run/schems/3t_cca.schem
+RUST_BACKTRACE=1 cargo run -- --schem-file /home/stack/ledump/MCHPRS/run/schems/bycl.schem

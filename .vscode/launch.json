@@ -1,0 +1,48 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'mc_renderer'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=mc_renderer",
+                    "--package=mc_renderer"
+                ],
+                "filter": {
+                    "name": "mc_renderer",
+                    "kind": "bin"
+                }
+            },
+            "args": ["--schem-file", "/home/stack/ledump/MCHPRS/run/schems/bycl.schem"],
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "CARGO_MANIFEST_DIR": "${workspaceFolder}"
+            },
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'mc_renderer'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=mc_renderer",
+                    "--package=mc_renderer"
+                ],
+                "filter": {
+                    "name": "mc_renderer",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}

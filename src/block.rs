@@ -11,6 +11,7 @@ use minecraft_assets::schemas::blockstates::ModelProperties;
 use minecraft_assets::schemas::models::{Axis, BlockFace, Element, ElementFace, Textures};
 
 use crate::resources::textures::{resolve_textures_completely, TextureAtlas};
+use crate::AppLoadState;
 
 fn decode_props(props: &str) -> HashMap<&str, StateValue> {
     let mut res = HashMap::new();
@@ -84,11 +85,7 @@ fn get_tint_for_block(
     }
 }
 
-fn element_mesh(
-    element: &Element,
-    atlas: &TextureAtlas,
-    textures: &Textures,
-) -> (Mesh, bool, Vec3) {
+fn element_mesh(element: &Element, atlas: &TextureAtlas, textures: &Textures) -> (Mesh, bool) {
     let min = Vec3::from_array(element.from);
     let max = Vec3::from_array(element.to);
 
@@ -207,8 +204,6 @@ fn element_mesh(
         );
     }
 
-    let offset = min + (max - min) / 2.0;
-
     (
         Mesh::new(
             PrimitiveTopology::TriangleList,
@@ -219,7 +214,6 @@ fn element_mesh(
         .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
         .with_inserted_indices(Indices::U32(indices)),
         has_transparency,
-        offset,
     )
 }
 
@@ -233,7 +227,6 @@ fn rot_vert_with_orig(rot: Quat, orig: [f32; 3], vert: [f32; 3]) -> [f32; 3] {
 pub struct ElementMesh {
     pub mesh: Handle<Mesh>,
     pub has_transparency: bool,
-    pub offset: Vec3,
 }
 
 pub fn create_mesh_for_block(
@@ -241,7 +234,7 @@ pub fn create_mesh_for_block(
     atlas: &TextureAtlas,
     block_models: &BlockModels,
     mesh_assets: &mut Assets<Mesh>,
-) -> (Vec<ElementMesh>, Option<Color>) {
+) -> (ElementMesh, Option<Color>) {
     let models = &block_models.0[block];
 
     let mut positions: Vec<[f32; 3]> = Vec::new();
@@ -253,8 +246,7 @@ pub fn create_mesh_for_block(
 
     for model in &models.0 {
         for element in &model.elements {
-            let (mesh, elem_has_transparency, offset) =
-                element_mesh(element, atlas, &model.textures);
+            let (mesh, elem_has_transparency) = element_mesh(element, atlas, &model.textures);
 
             if elem_has_transparency {
                 has_transparency = true;
@@ -343,11 +335,10 @@ pub fn create_mesh_for_block(
     .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
     .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
     .with_inserted_indices(Indices::U32(indices));
-    let meshes = vec![ElementMesh {
+    let meshes = ElementMesh {
         mesh: mesh_assets.add(mesh),
         has_transparency,
-        offset: Vec3::ZERO,
-    }];
+    };
     (meshes, models.1)
 }
 
@@ -405,4 +396,183 @@ fn process_model(
         });
     }
     Ok(processed_models)
+}
+
+#[derive(Default)]
+struct BlockMaterials {
+    base: StandardMaterial,
+    opaque: Handle<StandardMaterial>,
+    transparent: Handle<StandardMaterial>,
+    /// mapping from tint color to material
+    tints: HashMap<u32, Handle<StandardMaterial>>,
+}
+
+impl BlockMaterials {
+    fn new(materials: &mut Assets<StandardMaterial>, atlas: &TextureAtlas) -> Self {
+        let base = StandardMaterial {
+            base_color_texture: Some(atlas.image.clone()),
+            perceptual_roughness: 1.0,
+            reflectance: 0.0,
+            fog_enabled: false,
+            alpha_mode: AlphaMode::Blend,
+            ..default()
+        };
+
+        Self {
+            opaque: materials.add(StandardMaterial {
+                alpha_mode: AlphaMode::Mask(0.5),
+                ..base.clone()
+            }),
+            transparent: materials.add(base.clone()),
+            tints: Default::default(),
+            base,
+        }
+    }
+
+    fn get_or_add_tint(
+        &mut self,
+        tint: Color,
+        materials: &mut Assets<StandardMaterial>,
+    ) -> Handle<StandardMaterial> {
+        self.tints
+            .entry(tint.as_rgba_u32())
+            .or_insert_with(|| {
+                materials.add(StandardMaterial {
+                    base_color: tint,
+                    ..self.base.clone()
+                })
+            })
+            .clone()
+    }
+}
+
+#[derive(Resource)]
+pub struct BlockPalette {
+    blocks: Vec<String>,
+    map: HashMap<String, usize>,
+}
+
+impl Default for BlockPalette {
+    fn default() -> Self {
+        Self {
+            blocks: vec!["minecraft:air".to_string()],
+            map: {
+                let mut map = HashMap::new();
+                map.insert("minecraft:air".to_string(), 0);
+                map
+            },
+        }
+    }
+}
+
+impl BlockPalette {
+    pub fn get_or_add(&mut self, name: &str) -> usize {
+        match self.map.get(name) {
+            Some(idx) => *idx,
+            None => {
+                let idx = self.blocks.len();
+                self.map.insert(name.to_string(), idx);
+                self.blocks.push(name.to_string());
+                idx
+            }
+        }
+    }
+}
+
+#[derive(Resource, Default)]
+struct BlockResources {
+    // Mapping from palette index to mesh and tint
+    meshes: HashMap<usize, (ElementMesh, Option<Color>)>,
+    mats: BlockMaterials,
+}
+
+#[derive(Bundle)]
+pub struct BlockBundle {
+    pub block: Block,
+    pub pbr: PbrBundle,
+}
+
+impl BlockBundle {
+    pub fn new(idx: usize, pos: IVec3) -> Self {
+        Self {
+            block: Block { block: idx },
+            pbr: PbrBundle {
+                transform: Transform {
+                    translation: pos.as_vec3(),
+                    rotation: Quat::IDENTITY,
+                    scale: Vec3::splat(1.0 / 16.0),
+                },
+                ..default()
+            },
+        }
+    }
+}
+
+#[derive(Component)]
+pub struct Block {
+    block: usize,
+}
+
+fn init_new_blocks(
+    mut blocks: Query<(&Block, &mut Handle<Mesh>, &mut Handle<StandardMaterial>), Added<Block>>,
+    mut res: ResMut<BlockResources>,
+    atlas: Res<TextureAtlas>,
+    block_models: Res<BlockModels>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    palette: Res<BlockPalette>,
+) {
+    for (block, mut mesh_handle, mut mat_handle) in blocks.iter_mut() {
+        let res = &mut *res;
+        let (mesh, tint) = match res.meshes.get(&block.block) {
+            Some(mesh) => mesh,
+            None => {
+                let mesh = create_mesh_for_block(
+                    &palette.blocks[block.block],
+                    &atlas,
+                    &block_models,
+                    &mut meshes,
+                );
+                res.meshes.insert(block.block, mesh);
+                // it's stupid i know
+                res.meshes.get(&block.block).unwrap()
+            }
+        };
+        *mesh_handle = mesh.mesh.clone();
+        let material = if let Some(tint) = tint {
+            res.mats.get_or_add_tint(*tint, &mut materials)
+        } else {
+            if mesh.has_transparency {
+                res.mats.transparent.clone()
+            } else {
+                res.mats.opaque.clone()
+            }
+        };
+        *mat_handle = material;
+    }
+}
+
+fn init_block_resources(
+    mut commands: Commands,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    atlas: Res<TextureAtlas>,
+) {
+    commands.insert_resource(BlockResources {
+        meshes: default(),
+        mats: BlockMaterials::new(&mut materials, &atlas),
+    });
+}
+
+pub struct BlockPlugin;
+
+impl Plugin for BlockPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_systems(
+            Update,
+            init_new_blocks.run_if(in_state(AppLoadState::Finished)),
+        )
+        .add_systems(OnEnter(AppLoadState::Finished), init_block_resources)
+        .init_resource::<BlockPalette>()
+        .init_resource::<BlockResources>();
+    }
 }

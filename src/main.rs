@@ -1,6 +1,6 @@
+mod block;
 mod cli;
 mod debug_menu;
-mod mesh;
 mod resources;
 
 use bevy::core_pipeline::experimental::taa::TemporalAntiAliasBundle;
@@ -16,71 +16,21 @@ use bevy::utils::HashMap;
 use bevy::window::{CursorGrabMode, PresentMode, PrimaryWindow};
 use bevy_atmosphere::prelude::*;
 use bevy_fly_camera::{FlyCamera, FlyCameraPlugin};
+use block::{BlockBundle, BlockPalette, BlockPlugin};
 use color_eyre::Result;
 use debug_menu::McDebugMenuPlugin;
 use iyes_perf_ui::{PerfUiCompleteBundle, PerfUiPlugin};
 use mc_schems::{Blocks, Schematic};
-use mesh::BlockModels;
 use resources::mc_meta::{McMetaAsset, McMetaAssetLoader};
 use resources::McAssetLoaderPlugin;
 use std::f32::consts::PI;
 use std::fs;
-
-use mesh::create_mesh_for_block;
-use resources::textures::TextureAtlas;
 
 #[derive(States, Debug, Clone, PartialEq, Eq, Hash, Default)]
 enum AppLoadState {
     #[default]
     LoadingTextures,
     Finished,
-}
-
-struct BlockMaterials {
-    base: StandardMaterial,
-    opaque: Handle<StandardMaterial>,
-    transparent: Handle<StandardMaterial>,
-    /// mapping from tint color to material
-    tints: HashMap<u32, Handle<StandardMaterial>>,
-}
-
-impl BlockMaterials {
-    fn new(materials: &mut Assets<StandardMaterial>, atlas: &TextureAtlas) -> Self {
-        let base = StandardMaterial {
-            base_color_texture: Some(atlas.image.clone()),
-            perceptual_roughness: 1.0,
-            reflectance: 0.0,
-            fog_enabled: false,
-            alpha_mode: AlphaMode::Blend,
-            ..default()
-        };
-
-        Self {
-            opaque: materials.add(StandardMaterial {
-                alpha_mode: AlphaMode::Mask(0.5),
-                ..base.clone()
-            }),
-            transparent: materials.add(base.clone()),
-            tints: Default::default(),
-            base,
-        }
-    }
-
-    fn get_or_add_tint(
-        &mut self,
-        tint: Color,
-        materials: &mut Assets<StandardMaterial>,
-    ) -> Handle<StandardMaterial> {
-        self.tints
-            .entry(tint.as_rgba_u32())
-            .or_insert_with(|| {
-                materials.add(StandardMaterial {
-                    base_color: tint,
-                    ..self.base.clone()
-                })
-            })
-            .clone()
-    }
 }
 
 fn setup_lights(mut commands: Commands, mut ambient_light: ResMut<AmbientLight>) {
@@ -105,27 +55,15 @@ fn setup_lights(mut commands: Commands, mut ambient_light: ResMut<AmbientLight>)
 
 fn setup(
     mut commands: Commands,
-    block_models: Res<BlockModels>,
     block_world: Res<BlockWorld>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    atlas: Res<TextureAtlas>,
+    mut block_palette: ResMut<BlockPalette>,
 ) {
-    let mut mesh_map = HashMap::new();
-    for block in block_world.blocks.blocks_in_palette() {
-        let (block_meshes, tint) =
-            create_mesh_for_block(block, &atlas, &*block_models, &mut meshes);
-        mesh_map.insert(block.to_string(), (block_meshes, tint));
-    }
-
     let world_parent = commands
         .spawn(SpatialBundle {
             transform: Transform::from_rotation(Quat::from_rotation_y(PI)),
             ..default()
         })
         .id();
-
-    let mut block_mats = BlockMaterials::new(&mut materials, &atlas);
 
     let (sx, sy, sz) = block_world.blocks.size();
     for x in 0..sx {
@@ -135,48 +73,14 @@ fn setup(
                 if block == "minecraft:air" {
                     continue;
                 }
-                let (meshes, tint) = mesh_map[block].clone();
-                let block_transform = Transform {
-                    translation: Vec3::new(x as f32, y as f32, z as f32),
-                    rotation: Quat::IDENTITY,
-                    scale: Vec3::splat(1.0 / 16.0),
-                };
-                let single_element = meshes.len() == 1;
-                let parent_entity = if single_element {
-                    world_parent
-                } else {
-                    commands
-                        .spawn(SpatialBundle {
-                            transform: block_transform,
-                            ..default()
-                        })
-                        .set_parent(world_parent)
-                        .id()
-                };
-                for elem in meshes {
-                    let material = if let Some(tint) = tint {
-                        block_mats.get_or_add_tint(tint, &mut materials)
-                    } else {
-                        if elem.has_transparency {
-                            block_mats.transparent.clone()
-                        } else {
-                            block_mats.opaque.clone()
-                        }
-                    };
-                    let elem_transform = Transform::from_translation(elem.offset);
-                    commands
-                        .spawn(PbrBundle {
-                            mesh: elem.mesh,
-                            material: material.clone(),
-                            transform: if single_element {
-                                block_transform * elem_transform
-                            } else {
-                                elem_transform
-                            },
-                            ..default()
-                        })
-                        .set_parent(parent_entity);
-                }
+
+                let idx = block_palette.get_or_add(block);
+                commands
+                    .spawn(BlockBundle::new(
+                        idx,
+                        IVec3::new(x as i32, y as i32, z as i32),
+                    ))
+                    .set_parent(world_parent);
             }
         }
     }
@@ -237,7 +141,7 @@ fn main() -> Result<()> {
     let schematic = Schematic::deserialize(&fs::read(cli.schem_file)?)?;
 
     let asset_pack = resources::asset_pack::load_asset_pack()?;
-    let models = mesh::get_block_models_for(&asset_pack, &schematic)?;
+    let models = block::get_block_models_for(&asset_pack, &schematic)?;
 
     App::new()
         .add_plugins((
@@ -285,6 +189,7 @@ fn main() -> Result<()> {
             SystemInformationDiagnosticsPlugin,
             AtmospherePlugin,
             McAssetLoaderPlugin,
+            BlockPlugin,
         ))
         .init_state::<AppLoadState>()
         .init_asset::<McMetaAsset>()
