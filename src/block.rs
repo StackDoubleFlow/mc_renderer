@@ -85,7 +85,12 @@ fn get_tint_for_block(
     }
 }
 
-fn element_mesh(element: &Element, atlas: &TextureAtlas, textures: &Textures) -> (Mesh, bool) {
+fn element_mesh(
+    element: &Element,
+    atlas: &TextureAtlas,
+    textures: &Textures,
+    uv_rot: Vec2,
+) -> (Mesh, bool) {
     let min = Vec3::from_array(element.from);
     let max = Vec3::from_array(element.to);
 
@@ -96,40 +101,45 @@ fn element_mesh(element: &Element, atlas: &TextureAtlas, textures: &Textures) ->
 
     let mut has_transparency = false;
 
-    let mut common_face =
-        |face: &ElementFace, face_positions: [([f32; 3], [f32; 2]); 4], normal: [f32; 3]| {
-            // Find texture in atlas layout
-            let Some(texture) = face.texture.resolve(textures) else {
-                warn!("Could not resolve texture variable: {:?}", face.texture);
-                return;
-            };
-
-            let texture = atlas.get_tex_details(texture);
-            if texture.has_transparency {
-                has_transparency = true;
-            }
-
-            let index_base = positions.len() as u32;
-            let face_indices = [0, 1, 2, 2, 3, 0];
-            for x in face_indices.map(|x| x + index_base) {
-                indices.push(x);
-            }
-            for _ in 0..4 {
-                normals.push(normal);
-            }
-
-            for (pos, norm_uv) in face_positions {
-                let mut uv_x = norm_uv[0];
-                let mut uv_y = norm_uv[1];
-                if let Some(model_uv) = face.uv {
-                    uv_x = (model_uv[0] / 16.0).lerp(model_uv[2] / 16.0, uv_x);
-                    uv_y = (model_uv[1] / 16.0).lerp(model_uv[3] / 16.0, uv_y);
-                }
-
-                positions.push(pos);
-                uvs.push(texture.get_atlas_uvs(uv_x, uv_y));
-            }
+    let mut common_face = |face: &ElementFace,
+                           face_positions: [([f32; 3], [f32; 2]); 4],
+                           normal: [f32; 3],
+                           use_x_rot: bool| {
+        // Find texture in atlas layout
+        let Some(texture) = face.texture.resolve(textures) else {
+            warn!("Could not resolve texture variable: {:?}", face.texture);
+            return;
         };
+
+        let texture = atlas.get_tex_details(texture);
+        if texture.has_transparency {
+            has_transparency = true;
+        }
+
+        let index_base = positions.len() as u32;
+        let face_indices = [0, 1, 2, 2, 3, 0];
+        for x in face_indices.map(|x| x + index_base) {
+            indices.push(x);
+        }
+        for _ in 0..4 {
+            normals.push(normal);
+        }
+
+        for (pos, norm_uv) in face_positions {
+            let mut uv_x = norm_uv[0];
+            let mut uv_y = norm_uv[1];
+            if let Some(model_uv) = face.uv {
+                uv_x = (model_uv[0] / 16.0).lerp(model_uv[2] / 16.0, uv_x);
+                uv_y = (model_uv[1] / 16.0).lerp(model_uv[3] / 16.0, uv_y);
+            }
+
+            let rot = if use_x_rot { uv_rot.x } else { uv_rot.y };
+            let [uv_x, uv_y] = rotate_uv_with_orig(rot, [0.5, 0.5], [uv_x, uv_y]);
+
+            positions.push(pos);
+            uvs.push(texture.get_atlas_uvs(uv_x, uv_y));
+        }
+    };
 
     if let Some(face) = element.faces.get(&BlockFace::Up) {
         common_face(
@@ -141,6 +151,7 @@ fn element_mesh(element: &Element, atlas: &TextureAtlas, textures: &Textures) ->
                 ([max.x, max.y, max.z], [1.0, 1.0]),
             ],
             [0.0, 1.0, 0.0],
+            false,
         );
     }
     if let Some(face) = element.faces.get(&BlockFace::Down) {
@@ -153,6 +164,7 @@ fn element_mesh(element: &Element, atlas: &TextureAtlas, textures: &Textures) ->
                 ([max.x, min.y, min.z], [0.0, 1.0]),
             ],
             [0.0, -1.0, 0.0],
+            false,
         );
     }
     if let Some(face) = element.faces.get(&BlockFace::East) {
@@ -165,6 +177,7 @@ fn element_mesh(element: &Element, atlas: &TextureAtlas, textures: &Textures) ->
                 ([max.x, min.y, max.z], [0.0, 1.0]),
             ],
             [1.0, 0.0, 0.0],
+            true,
         );
     }
     if let Some(face) = element.faces.get(&BlockFace::West) {
@@ -177,6 +190,7 @@ fn element_mesh(element: &Element, atlas: &TextureAtlas, textures: &Textures) ->
                 ([min.x, min.y, min.z], [0.0, 1.0]),
             ],
             [-1.0, 0.0, 0.0],
+            true,
         );
     }
     if let Some(face) = element.faces.get(&BlockFace::South) {
@@ -189,6 +203,7 @@ fn element_mesh(element: &Element, atlas: &TextureAtlas, textures: &Textures) ->
                 ([min.x, max.y, max.z], [0.0, 0.0]),
             ],
             [0.0, 0.0, 1.0],
+            true,
         );
     }
     if let Some(face) = element.faces.get(&BlockFace::North) {
@@ -201,6 +216,7 @@ fn element_mesh(element: &Element, atlas: &TextureAtlas, textures: &Textures) ->
                 ([min.x, min.y, min.z], [0.0, 1.0]),
             ],
             [0.0, 0.0, -1.0],
+            true,
         );
     }
 
@@ -221,6 +237,15 @@ fn rot_vert_with_orig(rot: Quat, orig: [f32; 3], vert: [f32; 3]) -> [f32; 3] {
     let orig = Vec3::from_array(orig);
     let v = Vec3::from_array(vert) - orig;
     (Transform::from_rotation(rot).transform_point(v) + orig).to_array()
+}
+
+fn rotate_uv_with_orig(rot: f32, orig: [f32; 2], uv: [f32; 2]) -> [f32; 2] {
+    let res = rot_vert_with_orig(
+        Quat::from_rotation_y(rot),
+        [orig[0], 0.0, orig[1]],
+        [uv[0], 0.0, uv[1]],
+    );
+    [res[0], res[2]]
 }
 
 #[derive(Clone)]
@@ -246,14 +271,22 @@ pub fn create_mesh_for_block(
 
     for model in &models.0 {
         for element in &model.elements {
-            let (mesh, elem_has_transparency) = element_mesh(element, atlas, &model.textures);
+            let model_rot = Vec2::new(
+                (-model.model_rot.0 as f32).to_radians(),
+                (-model.model_rot.1 as f32).to_radians(),
+            );
+            let (mesh, elem_has_transparency) = element_mesh(
+                element,
+                atlas,
+                &model.textures,
+                if model.uv_lock { model_rot } else { Vec2::ZERO },
+            );
 
             if elem_has_transparency {
                 has_transparency = true;
             }
 
-            let model_rot = Quat::from_rotation_y((-model.model_rot.1 as f32).to_radians())
-                * Quat::from_rotation_x((-model.model_rot.0 as f32).to_radians());
+            let model_rot = Quat::from_rotation_y(model_rot.y) * Quat::from_rotation_x(model_rot.x);
             let rot_angle = element.rotation.angle.to_radians();
             let elem_rot = match element.rotation.axis {
                 Axis::X => Quat::from_rotation_x(rot_angle),
@@ -362,6 +395,7 @@ pub fn get_block_models_for(asset_pack: &AssetPack, schem: &Schematic) -> Result
 #[derive(Debug)]
 struct ProcessedModel {
     model_rot: (i32, i32),
+    uv_lock: bool,
     textures: Textures,
     elements: Vec<Element>,
 }
@@ -387,6 +421,7 @@ fn process_model(
         textures = resolve_textures_completely(textures);
         processed_models.push(ProcessedModel {
             model_rot: (model_props.x, model_props.y),
+            uv_lock: model_props.uv_lock,
             textures,
             elements,
         });
