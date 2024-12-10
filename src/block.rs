@@ -126,8 +126,9 @@ fn element_mesh(
         }
 
         for (pos, norm_uv) in face_positions {
-            let mut uv_x = norm_uv[0];
-            let mut uv_y = norm_uv[1];
+            let [mut uv_x, mut uv_y] =
+                rotate_uv_with_orig((face.rotation as f32).to_radians(), [0.5, 0.5], norm_uv);
+
             if let Some(model_uv) = face.uv {
                 uv_x = (model_uv[0] / 16.0).lerp(model_uv[2] / 16.0, uv_x);
                 uv_y = (model_uv[1] / 16.0).lerp(model_uv[3] / 16.0, uv_y);
